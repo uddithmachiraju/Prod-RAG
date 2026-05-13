@@ -1,0 +1,25 @@
+black
+isort
+mypy
+flake8
+pydantic==2.13.4
+pydantic-settings==2.14.1
+fastapi==0.136.1
+uvicorn==0.46.0
+structlog==25.5.0
+pymongo[srv]==4.17.0
+motor==3.7.1
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+types-passlib==1.7.7.20260211
+python-jose==3.5.0
+types-python-jose
+numpy==2.4.4
+requests==2.34.0
+
+pdfplumber==0.11.9
+pytesseract==0.3.13
+# fitz
+python-multipart
+PyMuPDF==1.27.2.3
+pillow==12.2.0

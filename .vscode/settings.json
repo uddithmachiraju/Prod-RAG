@@ -1,0 +1,63 @@
+{
+    // ==============================
+    // Editor
+    // ==============================
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+    },
+
+    // ==============================
+    // Python Formatting
+    // ==============================
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter"
+    },
+
+    "black-formatter.args": [
+        "--line-length", "200"
+    ],
+
+    // ==============================
+    // isort (Import Sorting)
+    // ==============================
+    "isort.args": [
+        "--profile", "black",
+        "--line-length", "200",
+        "--multi-line", "3",
+        "--include-trailing-comma"
+    ],
+
+    // ==============================
+    // Flake8
+    // ==============================
+    "python.linting.enabled": true,
+    "python.linting.flake8Enabled": true,
+    "python.linting.flake8Args": [
+        "--max-line-length=200",
+        "--extend-ignore=E203,W503",
+        "--max-complexity=10"
+    ],
+
+    // ==============================
+    // MyPy
+    // ==============================
+    "python.linting.mypyEnabled": true,
+    "python.linting.mypyArgs": [
+        "--python-version=3.10",
+        "--check-untyped-defs",
+        "--disallow-untyped-defs",
+        "--ignore-missing-imports",
+        "--strict-optional",
+        "--warn-return-any",
+        "--warn-unused-configs",
+        "--warn-unused-ignores"
+    ],
+
+    // ==============================
+    // Environment
+    // ==============================
+    "python-envs.defaultEnvManager": "ms-python.python:venv",
+    "python-envs.defaultPackageManager": "ms-python.python:pip",
+    "python.analysis.reportMissingTypeStubs": false
+}
