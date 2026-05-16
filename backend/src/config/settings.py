@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     AWS_BEDROCK_REGION: str = Field(default="us-east-1", description="AWS region for Bedrock service")
     AWS_BEDROCK_MODEL_ID: str = Field(default=..., description="Model ID for AWS Bedrock embeddings")
 
+    # AWS Settings
+    AWS_ACCESS_KEY_ID: str = Field(default=..., description="AWS access key ID for S3")
+    AWS_SECRET_ACCESS_KEY: str = Field(default=..., description="AWS secret access key for S3")
+    AWS_REGION: str = Field(default=..., description="AWS region for S3")
+    AWS_S3_BUCKET_NAME: str = Field(default=..., description="AWS S3 bucket name for storing files")
+    AWS_S3_FILE_EXPIRE_SECONDS: int = Field(default=3600, description="Expiration time for S3 presigned URLs in seconds")
+
     # Observability Settings
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")
 

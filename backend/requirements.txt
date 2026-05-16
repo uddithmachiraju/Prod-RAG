@@ -16,7 +16,7 @@ python-jose==3.5.0
 types-python-jose
 numpy==2.4.4
 requests==2.34.0
-
+boto3==1.43.7
 pdfplumber==0.11.9
 pytesseract==0.3.13
 # fitz

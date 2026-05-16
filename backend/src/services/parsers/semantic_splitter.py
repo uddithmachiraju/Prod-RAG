@@ -1,12 +1,14 @@
 import asyncio
 import re
 import time
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
 
 from src.config.logging import get_logger
+from src.schemas.document import DocumentChunk
 from src.services.embeddings.embeds import Embeddings
 
 logger = get_logger(__name__)
@@ -51,7 +53,7 @@ class SemanticSplitter:
         return float(np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)))
 
     @staticmethod
-    def _merge_orphan_chunks(chunks: list[str], min_words: int = 15) -> list[str]:
+    def _merge_orphan_chunks(chunks: list[str], min_words: int = 25) -> list[str]:
         """Merge orphan chunks that have fewer than min_words into the previous chunk."""
 
         if not chunks:
@@ -133,13 +135,13 @@ class SemanticSplitter:
 
             _flush()
 
-            return self._merge_orphan_chunks(chunks, min_words=15)
+            return self._merge_orphan_chunks(chunks, min_words=25)
 
         except Exception as e:
             logger.error(f"Error during semantic chunking: {e}")
             return []
 
-    async def parse(self, text: str) -> list[str]:
+    async def parse(self, text: str, document_id: str) -> list[DocumentChunk]:
         """Parse raw text and return a list of semantic chunks."""
 
         start = time.time()
@@ -156,6 +158,21 @@ class SemanticSplitter:
 
             chunks = await self._semantic_chunking(paragraphs)
 
+            structured_chunks: list[DocumentChunk] = []
+
+            for index, chunk_text in enumerate(chunks):
+                structured_chunks.append(
+                    DocumentChunk(
+                        chunk_id=uuid.uuid4(),
+                        document_id=document_id,
+                        chunk_index=index,
+                        content=chunk_text,
+                        created_at=datetime.now(timezone.utc),
+                        vector_id=None,
+                        embedding_model="",
+                    )
+                )
+
             logger.info(
                 "semantic_chunking_complete",
                 word_count=len(text.split()),
@@ -165,7 +182,7 @@ class SemanticSplitter:
                 processing_time_ms=round((time.time() - start) * 1000, 2),
             )
 
-            return chunks
+            return structured_chunks
 
         except Exception as e:
             logger.error(f"Error during parsing: {e}")

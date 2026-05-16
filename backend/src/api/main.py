@@ -11,18 +11,22 @@ from src.api.documents.router import router as document_router
 from src.api.ingestion.router import router as ingestion_router
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import get_settings
+from src.core.container import container, get_embedddings
 from src.db.mongo_db import check_db_health, close_db
-from src.services.embeddings.embeds import Embeddings
 
 settings = get_settings()
 setup_logging()
 logger = get_logger(__name__)
-embeddings_service = Embeddings()
+embeddings_service = get_embedddings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("app_starting", env=settings.ENV, version=settings.APP_VERSION)
+
+    container.initialize()
+    logger.info("initialized all service components", env=settings.ENV, version=settings.APP_VERSION)
+
     if not await check_db_health():
         logger.error("database_connection_failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the database. Check logs for details.")
