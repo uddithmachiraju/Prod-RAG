@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict
 
 import boto3  # type: ignore
+from botocore.exceptions import BotoCoreError, ClientError  # type: ignore
 
 from src.config.logging import get_logger
 from src.config.settings import get_settings
@@ -31,3 +32,23 @@ class SQSProducer:
         logger.info("Enqueued job to SQS", job_data=job_data, message_id=response.get("MessageId"))
 
         return response["MessageId"]
+    
+    def health_check(self) -> bool:
+        """Health check for the SQS producer."""
+        try:
+            self.sqs_client.get_queue_attributes(
+                QueueUrl=self.queue_url,
+                AttributeNames=["QueueArn"],
+            )
+            logger.info("SQS health check passed", queue_url=self.queue_url)
+            return True
+        except ClientError as e:
+            error_code = e.response["Error"]["Code"]
+            if error_code == "AWS.SimpleQueueService.NonExistentQueue":
+                logger.error("SQS queue does not exist", queue_url=self.queue_url, error_code=error_code)
+            else:
+                logger.error("SQS health check failed", queue_url=self.queue_url, error_code=error_code, error=str(e))
+            return False
+        except BotoCoreError as e:
+            logger.error("SQS unreachable", queue_url=self.queue_url, error=str(e))
+            return False

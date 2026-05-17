@@ -51,6 +51,11 @@ class Settings(BaseSettings):
 
     AWS_SQS_QUEUE_URL: str = Field(default=..., description="AWS SQS queue URL for message processing")
 
+    # ChromaDB Settings
+    CHROMA_DB_API_KEY: str = Field(default=..., description="API key for ChromaDB CloudClient")
+    CHROMA_DB_TENANT: str = Field(default=..., description="Tenant ID for ChromaDB CloudClient")
+    CHROMA_DB_DATABASE: str = Field(default="RAG", description="Database name for ChromaDB CloudClient")
+
     # Observability Settings
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")
 

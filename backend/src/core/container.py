@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 
+from src.services.chroma.db import ChromaDB
 from src.services.embeddings.embeds import Embeddings
 from src.services.parsers.base_parser import BaseParser
 from src.services.parsers.pdf_parser import PDFParser
@@ -13,6 +14,7 @@ class AppContainer:
     embeddings: Embeddings | None = field(default=None)
     parser: BaseParser | None = field(default=None)
     sqs_producer: SQSProducer = field(default=SQSProducer())
+    chorma_db: ChromaDB = field(default=ChromaDB())
 
     def initialize(self):
         """Initialization of components."""
@@ -20,6 +22,7 @@ class AppContainer:
         self.embedding_service = Embeddings()
         self.parser_service = PDFParser()
         self.sqs_producer = SQSProducer()
+        self.chorma_db = ChromaDB()
 
 
 container = AppContainer()
@@ -37,7 +40,14 @@ def get_parser() -> BaseParser:
 
     return container.parser_service
 
+
 def get_sqs_producer() -> SQSProducer:
     """returns the sqs producer service."""
 
     return container.sqs_producer
+
+
+def get_chroma_db() -> ChromaDB:
+    """returns the chroma db service."""
+
+    return container.chorma_db

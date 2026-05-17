@@ -43,6 +43,7 @@ class IngestionWorker(Consumer):
             logger.error("Error ingesting document", user_id=user_id, file_key=file_key, error=str(e))
 
 
+
 async def main() -> None:
     worker = IngestionWorker()
     shutdown_event = asyncio.Event()
