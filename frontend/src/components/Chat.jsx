@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
+import HomeUI from './HomeUI';
+import PDFViewer from './PDFViewer';
 
-const Chat = () => {
+const Chat = ({ onLogout, user }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [documents, setDocuments] = useState([]);
@@ -169,134 +171,83 @@ const Chat = () => {
   };
 
   return (
-    <div className="word-layout-container">
-      <div className="word-content-area">
-        {/* Navigation Sidebar (Left) */}
-        <aside 
-          className="nav-sidebar" 
-          style={{ 
-            width: isNavCollapsed ? '64px' : '240px', 
-            padding: isNavCollapsed ? '1.5rem 0' : '2rem 1.5rem',
-            transition: 'all 0.3s ease',
-            alignItems: isNavCollapsed ? 'center' : 'stretch'
-          }}
-        >
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'center', 
-            width: '100%',
-            marginBottom: '1rem' 
-          }}>
-            <button 
-              onClick={() => setIsNavCollapsed(!isNavCollapsed)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', padding: '0.5rem' }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
-            </button>
-          </div>
-
-          <div style={{ marginTop: '2rem', width: '100%' }}>
-            <div style={{ visibility: isNavCollapsed ? 'hidden' : 'visible', opacity: isNavCollapsed ? 0 : 1, transition: 'opacity 0.2s', height: isNavCollapsed ? 0 : 'auto' }}>
-              <div className="nav-section-title">Workspace</div>
+    <div className="new-home-layout">
+      <div className="new-home-container">
+        
+        {/* Modern Sidebar */}
+        <aside className="new-home-sidebar">
+          {/* Hidden global file input for sidebar upload button */}
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileUpload} 
+            style={{ display: 'none' }} 
+            accept=".pdf"
+          />
+          <div className="sidebar-top">
+            <div className="sidebar-logo">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="5" />
+                <circle cx="12" cy="5" r="3" fill="currentColor"/>
+                <circle cx="12" cy="19" r="3" fill="currentColor"/>
+                <circle cx="5" cy="12" r="3" fill="currentColor"/>
+                <circle cx="19" cy="12" r="3" fill="currentColor"/>
+              </svg>
             </div>
-            <div 
-              className={`nav-item ${activeTab === 'home' ? 'active' : ''}`} 
+            
+            <button 
+              className={`sidebar-btn ${activeTab === 'home' ? 'active' : ''}`} 
               onClick={handleGoHome} 
               title="Home"
-              style={isNavCollapsed ? { justifyContent: 'center', padding: '0.75rem' } : {}}
+              style={activeTab === 'home' ? { color: '#111', background: '#eaeaea' } : {}}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-              {!isNavCollapsed && <span>Home</span>}
-            </div>
-            <div 
-              className={`nav-item ${activeTab === 'document' ? 'active' : ''}`} 
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline>
+              </svg>
+            </button>
+
+            <button 
+              className={`sidebar-btn ${activeTab === 'document' ? 'active' : ''}`} 
               onClick={() => setActiveTab('document')} 
               title="Document"
-              style={isNavCollapsed ? { justifyContent: 'center', padding: '0.75rem' } : {}}
+              style={activeTab === 'document' ? { color: '#111', background: '#eaeaea' } : {}}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-              {!isNavCollapsed && <span>Document</span>}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline>
+              </svg>
+            </button>
+            
+            <button className="sidebar-btn sidebar-btn-add" onClick={() => fileInputRef.current?.click()} title="Upload Document" style={{marginTop: '1rem'}}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+          </div>
+          
+          <div className="sidebar-bottom">
+            <button className="sidebar-btn">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+            </button>
+            <div className="sidebar-avatar" onClick={onLogout} title="Log Out" style={{ cursor: 'pointer' }}>
+              <img src="https://i.pravatar.cc/150?img=11" alt="User Avatar" />
             </div>
           </div>
         </aside>
 
-        {/* Dynamic Center Content */}
-        <div className="document-viewer-section">
-          {activeTab === 'home' ? (
-            <div style={{ maxWidth: '800px', width: '100%', marginTop: '4rem' }}>
-              <h1 style={{ fontSize: '2.5rem', fontWeight: 800, marginBottom: '1rem', color: '#111', letter_spacing: '-0.03em' }}>Welcome back.</h1>
-              <p style={{ fontSize: '1.1rem', color: '#666', marginBottom: '4rem' }}>Upload a document to start analyzing or continue where you left off.</p>
-              
-              <div 
-                onClick={() => fileInputRef.current.click()}
-                style={{ 
-                  background: 'white', 
-                  border: '2px dashed #eee', 
-                  borderRadius: '24px', 
-                  padding: '6rem 2rem', 
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseOver={(e) => e.currentTarget.style.borderColor = '#111'}
-                onMouseOut={(e) => e.currentTarget.style.borderColor = '#eee'}
-              >
-                <div style={{ background: '#f5f5f5', width: '64px', height: '64px', borderRadius: '50%', display: 'flex', alignItems: 'center', justify_content: 'center', margin: '0 auto 1.5rem' }}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                </div>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#111', marginBottom: '0.5rem' }}>Upload Document</h3>
-                <p style={{ color: '#999', fontSize: '0.95rem' }}>PDF files up to 50MB are supported.</p>
-                <input type="file" ref={fileInputRef} onChange={handleFileUpload} style={{ display: 'none' }} accept=".pdf" />
-              </div>
-
-              {documents.length > 0 && (
-                <div style={{ marginTop: '5rem' }}>
-                  <h2 style={{ fontSize: '1rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#999', marginBottom: '1.5rem' }}>Recent Documents</h2>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1.5rem' }}>
-                    {documents.slice(0, 3).map(doc => (
-                      <div 
-                        key={doc.id} 
-                        onClick={() => handleSelectDoc(doc)}
-                        style={{ background: 'white', border: '1px solid #f0f0f0', padding: '1.5rem', borderRadius: '16px', cursor: 'pointer', transition: 'transform 0.2s' }}
-                        onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-4px)'}
-                        onMouseOut={(e) => e.currentTarget.style.transform = 'none'}
-                      >
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2" style={{ marginBottom: '1rem' }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                        <div style={{ fontWeight: 600, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.name}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div 
-              className="doc-page" 
-              style={pdfUrl ? { 
-                width: '100%', 
-                maxWidth: 'none', 
-                height: '100%', 
-                padding: 0, 
-                border: 'none', 
-                boxShadow: 'none',
-                borderRadius: 0,
-                margin: 0
-              } : {}}
-            >
+        {/* Dynamic Main Content */}
+        {activeTab === 'home' ? (
+          <HomeUI onLogout={onLogout} user={user} onUpload={handleFileUpload} documents={documents} onSelectDoc={handleSelectDoc} />
+        ) : (
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden', background: '#ffffff' }}>
+            
+            {/* Left side: PDF Viewer */}
+            <div className="doc-page" style={{ flex: 1, height: '100%', margin: 0, padding: 0, border: 'none', borderRadius: 0, boxShadow: 'none', background: '#ffffff' }}>
               {pdfUrl ? (
-                <iframe 
-                  src={pdfUrl} 
-                  style={{ 
-                    width: '100%', 
-                    height: '100%', 
-                    border: 'none',
-                    margin: 0,
-                    padding: 0,
-                    display: 'block'
-                  }} 
-                  frameBorder="0"
-                  title="Document Viewer"
-                />
+                <PDFViewer url={pdfUrl} />
               ) : (
                 <div style={{ padding: '2rem' }}>
                   <h1 className="doc-title-placeholder">{selectedDoc?.name || 'Untitled Document'}</h1>
@@ -312,68 +263,63 @@ const Chat = () => {
                 </div>
               )}
             </div>
-          )}
-        </div>
 
-        {/* Plugin Sidebar (Chatbot) on the Right */}
-        <aside className="plugin-sidebar">
-          <div className="plugin-header">
-            <div className="plugin-title">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111" strokeWidth="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-              Assistant
-            </div>
-            <button className="plugin-close">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
-          </div>
-
-          <div className="plugin-chat-container">
-            <div className="plugin-chat-messages">
-              {messages.length === 0 ? (
-                <div style={{ textAlign: 'center', color: '#999', marginTop: '2rem' }}>
-                  <p style={{ fontSize: '0.9rem' }}>How can I help you today?</p>
-                  <button 
-                    onClick={() => fileInputRef.current.click()} 
-                    style={{ marginTop: '1.5rem', background: '#111', color: 'white', border: 'none', padding: '0.75rem 1.25rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500 }}
-                    disabled={isUploading}
-                  >
-                    {isUploading ? 'Uploading...' : 'Upload Document'}
-                  </button>
-                  <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    onChange={handleFileUpload} 
-                    style={{ display: 'none' }} 
-                    accept=".pdf"
-                  />
-                </div>
-              ) : (
-                messages.map(msg => (
-                  <div key={msg.id} className={`plugin-message ${msg.sender}`}>
-                    <div className="plugin-bubble">
-                      {msg.text}
-                    </div>
+            {/* Right side: Plugin Sidebar (Chatbot) */}
+            <aside className="plugin-sidebar" style={{ width: '450px', borderLeft: '1px solid #f0f0f0', background: '#f4f4f5', margin: '0', height: '100%', boxShadow: 'none', borderRight: 'none', borderRadius: '0' }}>
+              <div className="plugin-header" style={{ padding: '1.5rem', borderBottom: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="plugin-title" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg, #a8c0ff 0%, #3f2b96 100%)' }}></div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '0.95rem', fontWeight: 600, color: '#111' }}>Project Analysis</span>
+                    <span style={{ fontSize: '0.75rem', color: '#888', fontWeight: 400 }}>Active session</span>
                   </div>
-                ))
-              )}
-            </div>
+                </div>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+              </div>
 
-            <div className="plugin-input-area">
-              <form className="plugin-input-wrapper" onSubmit={handleSendMessage}>
-                <input 
-                  type="text" 
-                  className="plugin-input" 
-                  placeholder="Ask a question..." 
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                />
-                <button type="submit" className="plugin-send-btn">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-                </button>
-              </form>
-            </div>
+              <div className="plugin-chat-container" style={{ background: 'transparent' }}>
+                <div className="plugin-chat-messages" style={{ padding: '1rem 1.5rem', background: 'transparent' }}>
+                  {messages.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: '#999', marginTop: '2rem' }}>
+                      <p style={{ fontSize: '0.9rem' }}>How can I help you today?</p>
+                      <button 
+                        onClick={() => fileInputRef.current.click()} 
+                        style={{ marginTop: '1.5rem', background: '#111', color: 'white', border: 'none', padding: '0.75rem 1.25rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500 }}
+                        disabled={isUploading}
+                      >
+                        {isUploading ? 'Uploading...' : 'Upload Document'}
+                      </button>
+                    </div>
+                  ) : (
+                    messages.map(msg => (
+                      <div key={msg.id} className={`plugin-message ${msg.sender}`}>
+                        <div className="plugin-bubble">
+                          {msg.text}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="plugin-input-area" style={{ padding: '1.5rem', background: 'transparent' }}>
+                  <form className="plugin-input-wrapper" onSubmit={handleSendMessage} style={{ background: '#ffffff', borderRadius: '16px', padding: '0.75rem', display: 'flex', boxShadow: '0 2px 10px rgba(0,0,0,0.02)' }}>
+                    <input 
+                      type="text" 
+                      className="plugin-input" 
+                      placeholder="Ask a question..." 
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      style={{ background: 'transparent', border: 'none', flex: 1, outline: 'none', fontSize: '0.95rem' }}
+                    />
+                    <button type="submit" className="plugin-send-btn" style={{ background: '#111', color: 'white', border: 'none', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </aside>
           </div>
-        </aside>
+        )}
       </div>
     </div>
   );
