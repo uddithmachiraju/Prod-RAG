@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET_NAME: str = Field(default=..., description="AWS S3 bucket name for storing files")
     AWS_S3_FILE_EXPIRE_SECONDS: int = Field(default=3600, description="Expiration time for S3 presigned URLs in seconds")
 
+    AWS_SQS_QUEUE_URL: str = Field(default=..., description="AWS SQS queue URL for message processing")
+
     # Observability Settings
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")
 

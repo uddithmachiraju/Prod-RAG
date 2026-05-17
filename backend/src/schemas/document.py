@@ -47,7 +47,7 @@ class DocumentMetadata(BaseModel):
 class DocumentChunk(BaseModel):
     """Individual processed chunk of a document."""
 
-    chunk_id: uuid.UUID = Field(default_factory=lambda: uuid.uuid4(), description="Unique identifier for this chunk.")
+    chunk_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier for this chunk.")
     document_id: str = Field(..., description="Identifier of the parent document.")
     chunk_index: int = Field(..., description="Order of this chunk within the document.")
     content: str = Field(..., description="Text content of the chunk.")
@@ -60,7 +60,7 @@ class Document(BaseModel):
     """Main schema representing a processed document."""
 
     user_id: str = Field(..., description="Identifier of the user who uploaded the document.")
-    document_id: uuid.UUID = Field(default_factory=lambda: uuid.uuid4(), description="Unique identifier for the document.")
+    document_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier for the document.")
     chunks: List[DocumentChunk] = Field(..., description="List of processed chunks belonging to the document.")
     uploaded_at: datetime = Field(..., description="Timestamp when the document was uploaded.")
     processed_at: datetime = Field(..., description="Timestamp when document processing completed.")

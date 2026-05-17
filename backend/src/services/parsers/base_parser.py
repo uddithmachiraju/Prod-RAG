@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import List
+from typing import Any, Dict
 
-from src.schemas.document import DocumentChunk
+from src.schemas.document import Document
 
 
 class BaseParser(ABC):
@@ -13,5 +13,5 @@ class BaseParser(ABC):
         pass
 
     @abstractmethod
-    async def parse(self, file_bytes: bytes) -> list[DocumentChunk]:
+    async def parse(self, user_id: str, file_metadata: Dict[str, Any]) -> Document:
         pass

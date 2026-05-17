@@ -1,3 +1,4 @@
+import asyncio
 from typing import Tuple
 
 import boto3  # type: ignore
@@ -23,6 +24,24 @@ def generate_file_key(user_id: str, filename: str, document_id: str) -> str:
     safe_filename = filename.replace("/", "_")
 
     return f"{user_id}/{document_id}/{safe_filename}"
+
+async def download_file_from_s3(file_key: str) -> bytes:
+    """Download a file from S3 from its file key."""
+
+    loop = asyncio.get_running_loop()
+    try:
+        response = await loop.run_in_executor(
+            None,
+            lambda: s3_client.get_object(
+                Bucket=settings.AWS_S3_BUCKET_NAME, 
+                Key=file_key,
+            )
+        )
+        file_bytes = response["Body"].read()
+        return file_bytes
+    except Exception as e:
+        logger.error("error downloading file from s3", file_key=file_key)
+        raise RuntimeError(f"Error downloading file from S3: {str(e)}")
 
 
 async def generate_presigned_url(user_id: str, filename: str, document_id: str, content_type: str) -> Tuple[str, str]:

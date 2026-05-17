@@ -14,7 +14,12 @@ async def ingest(file: UploadFile, user: dict = Depends(get_current_user), db: A
     """Document ingestion endpoint."""
 
     file_bytes = await file.read()
-    parsed_data = await parser.parse(file_bytes)
+    parsed_data = await parser.parse(file_bytes, user_id=user["user_id"], file_metadata={
+        "file_name": file.filename,
+        "file_key": f"{user['user_id']}/{file.filename}",
+        "file_type": file.content_type,
+        "file_size": len(file_bytes),
+    })
 
     return {
         "message": "File ingested successfully",

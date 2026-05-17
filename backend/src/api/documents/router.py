@@ -1,9 +1,9 @@
-from datetime import datetime
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from src.core.auth import get_current_user
+from src.core.container import get_parser
 from src.db.mongo_db import get_db
 from src.schemas.document import (
     ConformUploadRequest,
@@ -36,18 +36,18 @@ async def get_upload_url(payload: UploadURLRequest, user: dict = Depends(get_cur
 async def conform_upload(payload: ConformUploadRequest, user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     """conform file upload and store the metadata in the db."""
 
-    document_data = {
-        "user_id": str(user["_id"]),
-        "document_id": payload.document_id,
-        "file_name": payload.file_name,
-        "file_key": payload.file_key,
-        "file_type": payload.file_type,
-        "file_size": payload.file_size,
-        "status": "uploaded",
-        "uploaded_at": datetime.utcnow(),
-    }
+    parser = get_parser()
+    document = await parser.parse(
+        user_id=str(user["_id"]),
+        file_metadata={
+            "file_name": payload.file_name,
+            "file_key": payload.file_key,
+            "file_type": payload.file_type,
+            "file_size": payload.file_size,
+        }
+    )
 
-    await db.documents.insert_one(document_data)
+    await db.documents.insert_one(document.model_dump())
 
     return JSONResponse(
         status_code=201,

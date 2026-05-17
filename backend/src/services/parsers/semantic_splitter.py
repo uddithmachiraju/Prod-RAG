@@ -163,7 +163,7 @@ class SemanticSplitter:
             for index, chunk_text in enumerate(chunks):
                 structured_chunks.append(
                     DocumentChunk(
-                        chunk_id=uuid.uuid4(),
+                        chunk_id=str(uuid.uuid4()),
                         document_id=document_id,
                         chunk_index=index,
                         content=chunk_text,
