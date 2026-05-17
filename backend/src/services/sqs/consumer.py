@@ -13,24 +13,26 @@ settings = get_settings()
 logger = get_logger(__name__)
 
 
+sqs_client = boto3.client(
+    "sqs", 
+    region_name=settings.AWS_REGION,
+    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+)
+
 
 class Consumer:
     """Worker that consumes messages from the SQS queue and processes them."""
 
     def __init__(self) -> None:
         self.queue_url = settings.AWS_SQS_QUEUE_URL
-        self.sqs_client = boto3.client(
-            "sqs", 
-            region_name=settings.AWS_REGION,
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-        )
+        
 
     def _receive_messages(self) -> Dict[str, Any]:
         """Receive messages from the SQS queue."""
 
         try:
-            response = self.sqs_client.receive_message(
+            response = sqs_client.receive_message(
                 QueueUrl=self.queue_url,
                 MaxNumberOfMessages=10,
                 WaitTimeSeconds=20,
@@ -52,7 +54,7 @@ class Consumer:
 
             await loop.run_in_executor(
                 None, 
-                lambda: self.sqs_client.delete_message(
+                lambda: sqs_client.delete_message(
                     QueueUrl=self.queue_url,
                     ReceiptHandle=message["ReceiptHandle"],
                 )
@@ -122,7 +124,7 @@ async def main():
     loop = asyncio.get_running_loop()
 
     def send_message():
-        return consumer.sqs_client.send_message(
+        return sqs_client.send_message(
             QueueUrl=settings.AWS_SQS_QUEUE_URL, 
             MessageBody=json.dumps(
                 {

@@ -1,9 +1,11 @@
+from typing import Any, Dict
+
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from src.core.auth import get_current_user
-from src.core.container import get_parser
+from src.core.container import get_sqs_producer
 from src.db.mongo_db import get_db
 from src.schemas.document import (
     ConformUploadRequest,
@@ -20,7 +22,7 @@ async def get_upload_url(payload: UploadURLRequest, user: dict = Depends(get_cur
     """Generate a presigned S3 upload URL."""
 
     presigned_url, file_key = await generate_presigned_url(
-        user_id=user["_id"],
+        user_id=str(user["_id"]),
         filename=payload.file_name,
         document_id=payload.document_id,
         content_type=payload.content_type,
@@ -36,22 +38,22 @@ async def get_upload_url(payload: UploadURLRequest, user: dict = Depends(get_cur
 async def conform_upload(payload: ConformUploadRequest, user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     """conform file upload and store the metadata in the db."""
 
-    parser = get_parser()
-    document = await parser.parse(
-        user_id=str(user["_id"]),
-        file_metadata={
-            "file_name": payload.file_name,
-            "file_key": payload.file_key,
-            "file_type": payload.file_type,
-            "file_size": payload.file_size,
-        }
-    )
+    job_data: Dict[str, Any] = {
+        "user_id": str(user["_id"]),
+        "file_name": payload.file_name,
+        "file_key": payload.file_key,
+        "file_type": payload.file_type,
+        "file_size": payload.file_size,
+    }
 
-    await db.documents.insert_one(document.model_dump())
+    producer = get_sqs_producer() 
+    message_id = producer.enqueue_job(
+        job_data=job_data
+    )
 
     return JSONResponse(
         status_code=201,
-        content={"message": "File metadata recorded successfully"},
+        content={"message": "Upload conformed and job enqueued successfully", "message_id": message_id},
     )
 
 
