@@ -8,10 +8,13 @@ from typing import Any
 import numpy as np
 
 from src.config.logging import get_logger
+from src.config.settings import get_settings
 from src.schemas.document import DocumentChunk
+from src.services.chroma.db import chroma_client
 from src.services.embeddings.embeds import Embeddings
 
 logger = get_logger(__name__)
+settings = get_settings()
 embeddings = Embeddings()
 
 # Patterns to filter out entirely
@@ -28,6 +31,12 @@ class SemanticSplitter:
 
     def __init__(self) -> None:
         super().__init__()
+
+        self.collection = chroma_client.get_or_create_collection(
+            name=settings.CHROMA_DB_COLLECTION,
+            embedding_function=None,
+            metadata={"hnsw:space": "cosine"},
+        )
 
     def _clean_text(self, text: str) -> str:
         """Clean the text and remove any unwanted characters."""
@@ -161,6 +170,20 @@ class SemanticSplitter:
             structured_chunks: list[DocumentChunk] = []
 
             for index, chunk_text in enumerate(chunks):
+                embedding = await embeddings.get_embedding(chunk_text)
+                vector_id = f"{document_id}.chunk.{index}"
+
+                self.collection.add(
+                    ids=[vector_id],
+                    documents=[chunk_text],
+                    embeddings=[embedding],  # type: ignore
+                    metadatas=[
+                        {
+                            "document_id": document_id,
+                            "chunk_index": index,
+                        }
+                    ],
+                )
                 structured_chunks.append(
                     DocumentChunk(
                         chunk_id=str(uuid.uuid4()),
@@ -168,8 +191,8 @@ class SemanticSplitter:
                         chunk_index=index,
                         content=chunk_text,
                         created_at=datetime.now(timezone.utc),
-                        vector_id=None,
-                        embedding_model="",
+                        vector_id=vector_id,
+                        embedding_model=settings.AWS_BEDROCK_MODEL_ID,
                     )
                 )
 

@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     CHROMA_DB_API_KEY: str = Field(default=..., description="API key for ChromaDB CloudClient")
     CHROMA_DB_TENANT: str = Field(default=..., description="Tenant ID for ChromaDB CloudClient")
     CHROMA_DB_DATABASE: str = Field(default="RAG", description="Database name for ChromaDB CloudClient")
+    CHROMA_DB_COLLECTION: str = Field(default="RAG-dev", description="Chorma DB collection name to store the data.")
 
     # Observability Settings
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")

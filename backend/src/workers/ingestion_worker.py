@@ -1,4 +1,5 @@
 import asyncio
+import signal
 from typing import Any, Dict
 
 from src.config.logging import get_logger
@@ -22,26 +23,25 @@ class IngestionWorker(Consumer):
         file_key = payload.get("file_key")
 
         logger.info("Ingesting Document", user_id=user_id, file_key=file_key)
-        
+
         db = await get_db()
 
         try:
             parser = get_parser()
             document = await parser.parse(
-                user_id=str(user_id) if user_id is not None else None, # type: ignore
+                user_id=str(user_id) if user_id is not None else None,  # type: ignore
                 file_metadata={
                     "file_name": payload.get("file_name"),
                     "file_key": payload.get("file_key"),
                     "file_type": payload.get("file_type"),
                     "file_size": payload.get("file_size"),
-                }
+                },
             )
 
             await db.documents.insert_one(document.model_dump())
             logger.info("Document ingested successfully", user_id=user_id, file_key=file_key, document_id=document.document_id)
         except Exception as e:
             logger.error("Error ingesting document", user_id=user_id, file_key=file_key, error=str(e))
-
 
 
 async def main() -> None:
@@ -51,7 +51,11 @@ async def main() -> None:
     loop = asyncio.get_running_loop()
     setup_signal_handlers(loop, shutdown_event)
 
+    logger.info("Starting worker...")
+
     await worker.consume(shutdown_event)
+
+    logger.info("Worker stopped")
 
 
 if __name__ == "__main__":

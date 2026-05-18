@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 
 
 sqs_client = boto3.client(
-    "sqs", 
+    "sqs",
     region_name=settings.AWS_REGION,
     aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
     aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
@@ -26,7 +26,6 @@ class Consumer:
 
     def __init__(self) -> None:
         self.queue_url = settings.AWS_SQS_QUEUE_URL
-        
 
     def _receive_messages(self) -> Dict[str, Any]:
         """Receive messages from the SQS queue."""
@@ -41,7 +40,7 @@ class Consumer:
         except (BotoCoreError, ClientError) as e:
             logger.error("Error receiving messages from SQS", error=str(e), queue_url=self.queue_url)
             return {}
-        
+
     async def _handle_message(self, loop: asyncio.AbstractEventLoop, message: Dict[str, Any]) -> None:
         """Handle a single message from the SQS queue."""
 
@@ -50,14 +49,14 @@ class Consumer:
 
             body = json.loads(message.get("Body", "{}"))
 
-            await self.process_message(body) 
+            await self.process_message(body)
 
             await loop.run_in_executor(
-                None, 
+                None,
                 lambda: sqs_client.delete_message(
                     QueueUrl=self.queue_url,
                     ReceiptHandle=message["ReceiptHandle"],
-                )
+                ),
             )
 
             logger.info("Message processed and deleted", message_id=message.get("MessageId"))
@@ -70,11 +69,11 @@ class Consumer:
 
         logger.info("Starting SQS consumer", queue_url=self.queue_url)
         loop = asyncio.get_running_loop()
-        
+
         while not shutdown_event.is_set():
             try:
                 response = await loop.run_in_executor(
-                    None, 
+                    None,
                     self._receive_messages,
                 )
 
@@ -83,13 +82,10 @@ class Consumer:
                 if not messages:
                     continue
                 logger.info("Messages received", count=len(messages), queue_url=self.queue_url)
-                
-                tasks = [
-                    self._handle_message(loop, message)
-                    for message in messages
-                ]
-                await asyncio.gather(*tasks)    
-                
+
+                tasks = [self._handle_message(loop, message) for message in messages]
+                await asyncio.gather(*tasks)
+
             except Exception as e:
                 logger.error("Error consuming messages", error=str(e), queue_url=self.queue_url)
 
@@ -102,14 +98,21 @@ class Consumer:
             logger.error("Error decoding message body", error=str(e), message_id=message.get("MessageId"))
 
 
-def setup_signal_handlers(loop, shutdown_event: asyncio.Event) -> None:
+def setup_signal_handlers(loop: asyncio.AbstractEventLoop, shutdown_event: asyncio.Event) -> None:
+    """Register shutdown signals (Linux + Windows safe)."""
+
     def _shutdown():
-        logger.info("Shutdown signal received")
+        logger.info("Shutdown signal received. Stopping worker...")
         shutdown_event.set()
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, _shutdown)
-
+    try:
+        # Works on Linux / macOS
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, _shutdown)
+    except NotImplementedError:
+        # Windows fallback
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, lambda s, f: shutdown_event.set())
 
 
 async def main():
@@ -125,20 +128,19 @@ async def main():
 
     def send_message():
         return sqs_client.send_message(
-            QueueUrl=settings.AWS_SQS_QUEUE_URL, 
+            QueueUrl=settings.AWS_SQS_QUEUE_URL,
             MessageBody=json.dumps(
                 {
-                    "test": "message", 
-                    "type": "rag_ingest", 
-                    "payload":
-                    {
+                    "test": "message",
+                    "type": "rag_ingest",
+                    "payload": {
                         "job_id": "test-123",
                         "data": "This is a test message for RAG ingestion",
                     },
                 }
-            )
+            ),
         )
-    
+
     try:
         await loop.run_in_executor(None, send_message)
         await consumer_task
@@ -152,6 +154,7 @@ async def main():
         await consumer_task
     except asyncio.CancelledError:
         pass
+
 
 if __name__ == "__main__":
     asyncio.run(main())
