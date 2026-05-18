@@ -4,6 +4,7 @@ from src.services.chroma.db import ChromaDB
 from src.services.embeddings.embeds import Embeddings
 from src.services.parsers.base_parser import BaseParser
 from src.services.parsers.pdf_parser import PDFParser
+from src.services.retreival.retreive import RetrivalService
 from src.services.sqs.producer import SQSProducer
 
 
@@ -15,6 +16,7 @@ class AppContainer:
     parser: BaseParser | None = field(default=None)
     sqs_producer: SQSProducer = field(default=SQSProducer())
     chorma_db: ChromaDB = field(default=ChromaDB())
+    retrieval_service: RetrivalService = field(default=RetrivalService())
 
     def initialize(self):
         """Initialization of components."""
@@ -23,6 +25,7 @@ class AppContainer:
         self.parser_service = PDFParser()
         self.sqs_producer = SQSProducer()
         self.chorma_db = ChromaDB()
+        self.retrieval_service = RetrivalService()
 
 
 container = AppContainer()
@@ -51,3 +54,9 @@ def get_chroma_db() -> ChromaDB:
     """returns the chroma db service."""
 
     return container.chorma_db
+
+
+def get_retrieval_service() -> RetrivalService:
+    """returns the retrieval service."""
+
+    return container.retrieval_service
