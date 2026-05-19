@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from src.api.auth.router import router as auth_router
 from src.api.documents.router import router as document_router
 from src.api.ingestion.router import router as ingestion_router
+from src.api.retrieval.router import router as retrieval_router
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import get_settings
 from src.core.container import (
@@ -39,7 +40,7 @@ async def lifespan(app: FastAPI):
     if not await check_db_health():
         logger.error("database_connection_failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the database. Check logs for details.")
-    
+
     if not sqs_producer.health_check():
         logger.error("sqs_producer_connection_failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the SQS producer. Check logs for details.")
@@ -47,7 +48,7 @@ async def lifespan(app: FastAPI):
     if not embeddings_service.health_check():
         logger.error("embeddings_service_connection_failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the embeddings service. Check logs for details.")
-    
+
     if not chroma_db.health_check():
         logger.error("chroma_db_connection_failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the ChromaDB service. Check logs for details.")
@@ -97,6 +98,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(ingestion_router, prefix="/ingestion", tags=["Ingestion"])
 app.include_router(document_router, prefix="/documents", tags=["Documents"])
+app.include_router(retrieval_router, prefix="/retrieve", tags=["Retrieval"])
 
 
 if __name__ == "__main__":

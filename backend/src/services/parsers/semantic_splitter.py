@@ -94,8 +94,6 @@ class SemanticSplitter:
         return any(re.match(p, lower) for p in _NOISE_PATTERNS)
 
     async def _semantic_chunking(self, paragraphs: list[dict[str, Any]]) -> list[str]:
-        """Chunk the paragraphs into smaller pieces based on semantic meaning."""
-
         try:
             texts = [p["content"] for p in paragraphs if "content" in p and p["content"]]
 
@@ -119,6 +117,7 @@ class SemanticSplitter:
             current: list[str] = []
             current_len: int = 0
             max_len: int = 1000
+            pending_heading: str = ""  # carry heading into next chunk
 
             def _flush() -> None:
                 nonlocal current, current_len
@@ -133,7 +132,16 @@ class SemanticSplitter:
 
                 if para["is_heading"]:
                     _flush()
-                elif current_len + text_len > max_len:
+                    pending_heading = text  # replaces previous heading
+                    continue
+
+                # Prepend current section heading to every content line
+                if pending_heading:
+                    text = f"{pending_heading}\n{text}"
+                    text_len = len(text)
+                    # DO NOT clear pending_heading here
+
+                if current_len + text_len > max_len:
                     _flush()
 
                 current.append(text)
@@ -141,6 +149,10 @@ class SemanticSplitter:
 
                 if i in split_points:
                     _flush()
+
+            # flush any leftover heading with no content
+            if pending_heading:
+                current.append(pending_heading)
 
             _flush()
 

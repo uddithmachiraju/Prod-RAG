@@ -1,3 +1,5 @@
+from typing import Any, List
+
 import chromadb
 from chromadb.api.types import GetResult
 
@@ -19,6 +21,24 @@ class ChromaDB:
 
     def __init__(self) -> None:
         self.client = chroma_client
+
+    async def query(self, document_id: str, query_embedd: List[float], top_k: int) -> Any:
+        """Query the database to get similar chunks."""
+
+        try:
+            collection = self.client.get_collection(settings.CHROMA_DB_COLLECTION)
+
+            results = collection.query(
+                query_embeddings=query_embedd,
+                n_results=top_k,
+                where={"document_id": document_id},
+                include=["documents", "metadatas", "distances"],
+            )
+
+            return results
+
+        except Exception as e:
+            logger.error("failed to execute search query", error=str(e))
 
     def get_document_data(self, document_id: str) -> GetResult:
         """Retrieve all chunks and embeddings for a specific document."""

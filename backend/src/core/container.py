@@ -12,11 +12,11 @@ from src.services.sqs.producer import SQSProducer
 class AppContainer:
     """A Single container for all stateful components."""
 
-    embeddings: Embeddings | None = field(default=None)
-    parser: BaseParser | None = field(default=None)
+    embeddings: Embeddings = field(default=Embeddings())
+    parser: BaseParser = field(default=PDFParser())
     sqs_producer: SQSProducer = field(default=SQSProducer())
     chorma_db: ChromaDB = field(default=ChromaDB())
-    retrieval_service: RetrivalService = field(default=RetrivalService())
+    retrieval_service: RetrivalService = field(default=RetrivalService(vector_store=chorma_db, embeddings=embeddings))
 
     def initialize(self):
         """Initialization of components."""
@@ -25,7 +25,7 @@ class AppContainer:
         self.parser_service = PDFParser()
         self.sqs_producer = SQSProducer()
         self.chorma_db = ChromaDB()
-        self.retrieval_service = RetrivalService()
+        self.retrieval_service = RetrivalService(vector_store=self.chorma_db, embeddings=self.embedding_service)
 
 
 container = AppContainer()

@@ -1,13 +1,17 @@
-from fastapi import APIRouter
+from typing import Dict, List
 
+from fastapi import APIRouter, Depends
+
+from src.core.auth import get_current_user
 from src.core.container import get_retrieval_service
-from src.schemas.retrieval import RetrievalQueryRequest, RetrievalQueryResponse
+from src.schemas.retrieval import RetrievalRequest, RetrievalResponse
 
 router = APIRouter()
 
-@router.post("/query", status_code=200, response_model=RetrievalQueryResponse)
-async def query_retrieval(request: RetrievalQueryRequest) -> RetrievalQueryResponse:
+
+@router.post("/query", status_code=200, response_model=List[RetrievalResponse])
+async def query_retrieval(request: RetrievalRequest, user: Dict = Depends(get_current_user)) -> List[RetrievalResponse]:
     """Endpoint to handle retrieval queries."""
-    
+
     retrieval_service = get_retrieval_service()
     return await retrieval_service.search_query(request)

@@ -9,7 +9,7 @@ class RetrievalRequest(BaseModel):
     query: str = Field(..., description="The user's query for which relevant document chunks are to be retrieved.")
     user_id: str = Field(..., description="Identifier of the user making the query.")
     document_id: str = Field(..., description="Identifier of a specific document to search within. If not provided, search across all documents.")
-    top_k: Optional[int] = Field(5, description="The number of top relevant chunks to retrieve.")
+    top_k: int = Field(default=5, description="The number of top relevant chunks to retrieve.")
 
 
 class RetrievalResponse(BaseModel):
