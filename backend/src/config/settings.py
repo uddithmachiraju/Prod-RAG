@@ -39,8 +39,10 @@ class Settings(BaseSettings):
 
     # AWS Bedrock Settings
     AWS_BEDROCK_API_KEY: str = Field(default=..., description="API key for AWS Bedrock service")
-    AWS_BEDROCK_REGION: str = Field(default="us-east-1", description="AWS region for Bedrock service")
-    AWS_BEDROCK_MODEL_ID: str = Field(default=..., description="Model ID for AWS Bedrock embeddings")
+    AWS_BEDROCK_REGION: str = Field(default="ap-south-2", description="AWS region for Bedrock service")
+    AWS_BEDROCK_EMBED_MODEL_ID: str = Field(default=..., description="Embedding Model ID for AWS Bedrock embeddings")
+    AWS_BEDROCK_LLM_MODEL_ID: str = Field(default=..., description="LLM Model ID for AWS Bedrock")
+    AWS_BEDROCK_MODEL_REGION: str = Field(default="ap-south-2", description="AWS region for Bedrock models")
 
     # AWS Settings
     AWS_ACCESS_KEY_ID: str = Field(default=..., description="AWS access key ID for S3")

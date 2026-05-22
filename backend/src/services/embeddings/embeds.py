@@ -21,15 +21,15 @@ class Embeddings:
             raise ValueError("AWS_BEDROCK_API_KEY is not set in the environment variables.")
         if not settings.AWS_BEDROCK_REGION:
             raise ValueError("AWS_BEDROCK_REGION is not set in the environment variables.")
-        if not settings.AWS_BEDROCK_MODEL_ID:
-            raise ValueError("AWS_BEDROCK_MODEL_ID is not set in the environment variables.")
+        if not settings.AWS_BEDROCK_EMBED_MODEL_ID:
+            raise ValueError("AWS_BEDROCK_EMBED_MODEL_ID is not set in the environment variables.")
 
         self.headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {settings.AWS_BEDROCK_API_KEY}",
         }
         self.base_url = f"https://bedrock-runtime.{settings.AWS_BEDROCK_REGION}.amazonaws.com"
-        self.model_id = settings.AWS_BEDROCK_MODEL_ID
+        self.model_id = settings.AWS_BEDROCK_EMBED_MODEL_ID
 
     async def get_embedding(self, text: str) -> list[float]:
         """Get the embedding for a given text."""
@@ -44,7 +44,7 @@ class Embeddings:
                 lambda: requests.post(url, json=payload, headers=self.headers, timeout=30),
             )
             response.raise_for_status()
-            logger.info("Successfully fetched embedding from AWS Bedrock.", status_code=response.status_code, model=settings.AWS_BEDROCK_MODEL_ID)
+            logger.info("Successfully fetched embedding from AWS Bedrock.", status_code=response.status_code, model=settings.AWS_BEDROCK_EMBED_MODEL_ID)
             return response.json().get("embedding", [])
 
         except requests.exceptions.RequestException as e:

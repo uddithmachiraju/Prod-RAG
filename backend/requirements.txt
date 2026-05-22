@@ -24,3 +24,6 @@ python-multipart
 PyMuPDF==1.27.2.3
 pillow==12.2.0
 chromadb==1.5.9
+pystache 
+aws-requests-auth
+requests-aws4auth

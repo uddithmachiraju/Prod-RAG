@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 
 from src.services.chroma.db import ChromaDB
 from src.services.embeddings.embeds import Embeddings
+from src.services.llm.claude_model import ClaudeModel
 from src.services.parsers.base_parser import BaseParser
 from src.services.parsers.pdf_parser import PDFParser
 from src.services.retreival.retreive import RetrivalService
@@ -17,6 +18,7 @@ class AppContainer:
     sqs_producer: SQSProducer = field(default=SQSProducer())
     chorma_db: ChromaDB = field(default=ChromaDB())
     retrieval_service: RetrivalService = field(default=RetrivalService(vector_store=chorma_db, embeddings=embeddings))
+    llm_service: ClaudeModel = field(default=ClaudeModel())
 
     def initialize(self):
         """Initialization of components."""
@@ -26,6 +28,7 @@ class AppContainer:
         self.sqs_producer = SQSProducer()
         self.chorma_db = ChromaDB()
         self.retrieval_service = RetrivalService(vector_store=self.chorma_db, embeddings=self.embedding_service)
+        self.llm_service = ClaudeModel()
 
 
 container = AppContainer()
@@ -60,3 +63,9 @@ def get_retrieval_service() -> RetrivalService:
     """returns the retrieval service."""
 
     return container.retrieval_service
+
+
+def get_llm_service() -> ClaudeModel:
+    """returns the retrieval service."""
+
+    return container.llm_service

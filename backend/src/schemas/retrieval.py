@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Dict
 
 from pydantic import BaseModel, Field
 
@@ -18,5 +18,5 @@ class RetrievalResponse(BaseModel):
     document_id: str = Field(..., description="Identifier of the document from which chunks were retrieved.")
     chunk_id: str = Field(..., description="Identifier of the retrieved chunk.")
     content: str = Field(..., description="Text content of the retrieved chunk.")
-    metadata: dict = Field(..., description="Metadata associated with the retrieved chunk, such asembedding model used, creation timestamp, etc.")
+    metadata: Dict[str, Any] = Field(..., description="Metadata associated with the retrieved chunk, such asembedding model used, creation timestamp, etc.")
     score: float = Field(..., description="Relevance score of the retrieved chunk with respect to the query.")

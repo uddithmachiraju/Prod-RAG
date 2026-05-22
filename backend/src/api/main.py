@@ -9,13 +9,14 @@ from fastapi.responses import JSONResponse
 from src.api.auth.router import router as auth_router
 from src.api.documents.router import router as document_router
 from src.api.ingestion.router import router as ingestion_router
-from src.api.retrieval.router import router as retrieval_router
+from src.api.llm.router import router as retrieval_router
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import get_settings
 from src.core.container import (
     container,
     get_chroma_db,
     get_embedddings,
+    get_llm_service,
     get_sqs_producer,
 )
 from src.db.mongo_db import check_db_health, close_db
@@ -28,6 +29,7 @@ logger = get_logger(__name__)
 embeddings_service = get_embedddings()
 chroma_db = get_chroma_db()
 sqs_producer = get_sqs_producer()
+llm = get_llm_service()
 
 
 @asynccontextmanager
@@ -52,6 +54,10 @@ async def lifespan(app: FastAPI):
     if not chroma_db.health_check():
         logger.error("chroma_db_connection_failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the ChromaDB service. Check logs for details.")
+
+    if not llm.health_check():
+        logger.error("llm model connection failed", env=settings.ENV, version=settings.APP_VERSION)
+        raise RuntimeError("Failed to connect to the LLM service. Check logs for details.")
 
     yield
     await close_db()

@@ -97,7 +97,7 @@ class SemanticSplitter:
         try:
             texts = [p["content"] for p in paragraphs if "content" in p and p["content"]]
 
-            semaphore = asyncio.Semaphore(1)
+            semaphore = asyncio.Semaphore(10)
 
             async def get_embedding_with_semaphore(text: str) -> list[float]:
                 async with semaphore:
@@ -204,7 +204,7 @@ class SemanticSplitter:
                         content=chunk_text,
                         created_at=datetime.now(timezone.utc),
                         vector_id=vector_id,
-                        embedding_model=settings.AWS_BEDROCK_MODEL_ID,
+                        embedding_model=settings.AWS_BEDROCK_EMBED_MODEL_ID,
                     )
                 )
 
