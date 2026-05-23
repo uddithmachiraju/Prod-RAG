@@ -2,11 +2,12 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import boto3  # type: ignore
+from pydantic import ValidationError
 from pystache import render  # type: ignore
 
 from src.config.logging import get_logger
 from src.config.settings import get_settings
-from src.schemas.llm import LLMResponse
+from src.schemas.llm import LLMResponse, LLMStructuredResponse
 from src.schemas.retrieval import RetrievalResponse
 
 settings = get_settings()
@@ -17,6 +18,29 @@ llm_prompt = (Path(__file__).parent / "prompts" / "llm_response.mustache").read_
 
 class ClaudeModel:
     """AWS Bedrock LLM wrapper for Claude Model."""
+
+    TOOL_NAME = "structured_response"
+
+    TOOL_CONFIG = {
+        "tools": [
+            {
+                "toolSpec": {
+                    "name": TOOL_NAME,
+                    "description": (
+                        "Return a detailed, comprehensive, and thorough answer "
+                        "based on ALL retrieved context passages. "
+                        "The answer must be at minimum 5-7 sentences long, "
+                        "covering every relevant detail found across all chunks. "
+                        "Never give a brief or summarized response."
+                    ),
+                    "inputSchema": {
+                        "json": LLMStructuredResponse.model_json_schema()
+                    },
+                }
+            }
+        ],
+        "toolChoice": {"tool": {"name": TOOL_NAME}},  # Forces the model to always use the tool
+    }
 
     def __init__(self):
         if not settings.AWS_ACCESS_KEY_ID:
@@ -37,10 +61,9 @@ class ClaudeModel:
 
     def _map_context(self, user_question: str, retrievals: List[RetrievalResponse]) -> Dict[str, Any]:
         """Map RetrievalResponse list to mustache template variables."""
-
         return {
             "question": user_question,
-            "context": [
+            "content": [
                 {
                     "doc_id": r.document_id,
                     "chunk_id": r.chunk_id,
@@ -54,14 +77,38 @@ class ClaudeModel:
 
     def render_prompt_template(self, user_question: str, retrievals: List[RetrievalResponse]) -> str:
         """Render the prompt template for the LLM."""
-
         context = self._map_context(user_question=user_question, retrievals=retrievals)
         return render(template=llm_prompt, context=context)
 
+    def _extract_tool_input(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract tool use input block from Bedrock converse response."""
+
+        content_blocks = response.get("output", {}).get("message", {}).get("content", [])
+
+        for block in content_blocks:
+            if isinstance(block, dict) and block.get("toolUse", {}).get("name") == self.TOOL_NAME:
+                return block["toolUse"]["input"]
+
+        raise ValueError(f"No toolUse block named '{self.TOOL_NAME}' found in response.")
+
+    def _parse_structured_response(self, tool_input: Dict[str, Any]) -> LLMStructuredResponse:
+        """Validate tool input dict into LLMStructuredResponse."""
+
+        try:
+            return LLMStructuredResponse.model_validate(tool_input)
+        except ValidationError as e:
+            logger.error(f"Pydantic validation failed for tool input: {e}\nInput: {tool_input}")
+            return LLMStructuredResponse(
+                content="I don't have enough information in the retrieved documents to answer this accurately.",
+                gaps=f"Response validation failed: {e}",
+            )
+
     async def generate(self, query: str, retrievals: List[RetrievalResponse]) -> LLMResponse:
-        """Generate response from Bedrock Claude Model."""
+        """Generate a structured response from Bedrock using tool use."""
 
         prompt = self.render_prompt_template(user_question=query, retrievals=retrievals)
+
+        logger.info(f"Invoking Bedrock LLM with prompt: {prompt}")
 
         try:
             response = self.client.converse(
@@ -69,39 +116,32 @@ class ClaudeModel:
                 messages=[
                     {
                         "role": "user",
-                        "content": [
-                            {
-                                "text": prompt,
-                            }
-                        ],
+                        "content": [{"text": prompt}],
                     }
                 ],
                 inferenceConfig={
-                    "maxTokens": 1500,
-                    "temperature": 0.7,
+                    "maxTokens": 5000,
+                    "temperature": 0.2,
                     "topP": 0.9,
-                    "stopSequences": ["THE END"],
                 },
-                additionalModelRequestFields={
-                    "inferenceConfig": {
-                        "topK": 50,
-                    }
-                },
+                toolConfig=self.TOOL_CONFIG,
             )
 
-            # Extract text safely from Bedrock response structure
-            content = response.get("output", {}).get("message", {}).get("content", "")
-            if isinstance(content, list):
-                content = "".join(item.get("text", "") if isinstance(item, dict) else str(item) for item in content)
-            elif isinstance(content, dict):
-                content = content.get("text", "")
+            logger.debug(f"Raw Bedrock response: {response!r}")
+
+            # Extract token usage and stop reason from response metadata
+            usage = response.get("usage", {})
+            stop_reason = response.get("stopReason", "Unknown")
+
+            tool_input = self._extract_tool_input(response)
+            structured_response = self._parse_structured_response(tool_input)
 
             return LLMResponse(
-                answer=content,
-                model_id=self.model_id,
-                input_tokens=0,
-                output_tokens=0,
-                stop_reason="Unknown",
+                answer=structured_response,
+                model_id=self.model_id,          # self.model_id is always available
+                input_tokens=usage.get("inputTokens"),
+                output_tokens=usage.get("outputTokens"),
+                stop_reason=stop_reason,
             )
 
         except Exception as e:
@@ -111,18 +151,14 @@ class ClaudeModel:
     def stream(self):
         pass
 
-    def health_check(self):
+    def health_check(self) -> bool:
         try:
             self.client.converse(
                 modelId=self.model_id,
                 messages=[
                     {
                         "role": "user",
-                        "content": [
-                            {
-                                "text": "Hello, Bedrock! This is a health check.",
-                            }
-                        ],
+                        "content": [{"text": "Hello, Bedrock! This is a health check."}],
                     }
                 ],
                 inferenceConfig={
