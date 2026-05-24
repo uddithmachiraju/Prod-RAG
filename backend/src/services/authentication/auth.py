@@ -146,4 +146,6 @@ async def login_user(payload: UserLoginRequest, request: Request, db: AsyncIOMot
         access_token=token,
         token_type="bearer",
         expire_in_minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
+        full_name=user.get("full_name", ""),
+        username=user.get("username", "")
     )

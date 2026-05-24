@@ -44,7 +44,7 @@ class PDFParser(BaseParser):
 
         # Chunking
         chunking_start = time.perf_counter()
-        chunks: List[DocumentChunk] = await self.semantic_splitter.parse(full_text, document_id=str(document_id))
+        chunks: List[DocumentChunk] = await self.semantic_splitter.parse(document_id=str(document_id), text=full_text)
         chunking_time = round(time.perf_counter() - chunking_start, 4)
 
         processing_time = round(time.perf_counter() - total_start, 4)

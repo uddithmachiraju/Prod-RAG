@@ -67,7 +67,7 @@ class ClaudeModel:
                 {
                     "doc_id": r.document_id,
                     "chunk_id": r.chunk_id,
-                    "score": round(r.score, 4),
+                    # "score": round(r.score, 4),
                     "content": r.content,
                     "question": user_question,
                 }
