@@ -25,7 +25,7 @@ class PDFParser(BaseParser):
         return datetime.now(timezone.utc)
 
     async def parse(self, user_id: str, file_metadata: Dict[str, Any]) -> Document:
-        document_id = uuid4()
+        document_id = file_metadata.get("document_id", str(uuid4()))
         uploaded_at = self._get_current_timestamp()
         total_start = time.perf_counter()
 

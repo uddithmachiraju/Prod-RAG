@@ -21,8 +21,9 @@ class IngestionWorker(Consumer):
         payload = message
         user_id = payload.get("user_id")
         file_key = payload.get("file_key")
+        document_id = payload.get("document_id")
 
-        logger.info("Ingesting Document", user_id=user_id, file_key=file_key)
+        logger.info("Ingesting Document", user_id=user_id, file_key=file_key, document_id=document_id)
 
         db = await get_db()
 
@@ -35,13 +36,17 @@ class IngestionWorker(Consumer):
                     "file_key": payload.get("file_key"),
                     "file_type": payload.get("file_type"),
                     "file_size": payload.get("file_size"),
+                    "document_id": payload.get("document_id"),
                 },
             )
 
-            await db.documents.insert_one(document.model_dump())
+            doc = document.model_dump()
+            doc["_id"] = document_id
+
+            await db.documents.insert_one(doc)
             logger.info("Document ingested successfully", user_id=user_id, file_key=file_key, document_id=document.document_id)
         except Exception as e:
-            logger.error("Error ingesting document", user_id=user_id, file_key=file_key, error=str(e))
+            logger.error("Error ingesting document", user_id=user_id, file_key=file_key, document_id=document_id, error=str(e))
 
 
 async def main() -> None:

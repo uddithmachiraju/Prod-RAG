@@ -44,6 +44,7 @@ async def conform_upload(payload: ConformUploadRequest, user: dict = Depends(get
         "file_key": payload.file_key,
         "file_type": payload.file_type,
         "file_size": payload.file_size,
+        "document_id": payload.document_id,
     }
 
     producer = get_sqs_producer()
