@@ -40,6 +40,26 @@ class ChromaDB:
         except Exception as e:
             logger.error("failed to execute search query", error=str(e))
 
+    def get_user_documents(self, user_id: str) -> GetResult:
+        """Get all documents for a specific user."""
+
+        try:
+            collection = self.client.get_collection(settings.CHROMA_DB_COLLECTION)
+
+            result = collection.get(
+                where={
+                    "user_id": user_id,
+                },
+                include=["documents", "metadatas"],
+            )
+            logger.info("pulled user documents from chromadb", user_id=user_id, collection=collection.name)
+
+            return result
+
+        except Exception as e:
+            logger.error("Failed to fetch user documents", user_id=user_id, error=str(e))
+            raise
+
     def get_document_data(self, document_id: str) -> GetResult:
         """Retrieve all chunks and embeddings for a specific document."""
 

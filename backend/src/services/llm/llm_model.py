@@ -16,8 +16,8 @@ logger = get_logger(__name__)
 llm_prompt = (Path(__file__).parent / "prompts" / "llm_response.mustache").read_text("utf-8")
 
 
-class ClaudeModel:
-    """AWS Bedrock LLM wrapper for Claude Model."""
+class LLMModel:
+    """AWS Bedrock wrapper for LLM Model."""
 
     TOOL_NAME = "structured_response"
 
@@ -33,9 +33,7 @@ class ClaudeModel:
                         "covering every relevant detail found across all chunks. "
                         "Never give a brief or summarized response."
                     ),
-                    "inputSchema": {
-                        "json": LLMStructuredResponse.model_json_schema()
-                    },
+                    "inputSchema": {"json": LLMStructuredResponse.model_json_schema()},
                 }
             }
         ],
@@ -67,7 +65,7 @@ class ClaudeModel:
                 {
                     "doc_id": r.document_id,
                     "chunk_id": r.chunk_id,
-                    # "score": round(r.score, 4),
+                    "score": round(r.score, 4),
                     "content": r.content,
                     "question": user_question,
                 }
@@ -138,14 +136,14 @@ class ClaudeModel:
 
             return LLMResponse(
                 answer=structured_response,
-                model_id=self.model_id,          # self.model_id is always available
+                model_id=self.model_id,  # self.model_id is always available
                 input_tokens=usage.get("inputTokens"),
                 output_tokens=usage.get("outputTokens"),
                 stop_reason=stop_reason,
             )
 
         except Exception as e:
-            logger.error(f"Error invoking Bedrock Claude Model: {e}")
+            logger.error(f"Error invoking Bedrock LLM Model: {e}")
             raise
 
     def stream(self):
