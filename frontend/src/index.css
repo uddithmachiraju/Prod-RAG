@@ -1110,6 +1110,7 @@ body {
     overflow: hidden;
     cursor: pointer;
     margin-top: 0.5rem;
+    display: none !important;
 }
 
 .sidebar-avatar img {
@@ -1814,3 +1815,394 @@ body {
     cursor: not-allowed;
     transform: none;
 }
+
+/* --- REDESIGNED CHAT SIDEBAR SYSTEM --- */
+
+/* 1. Glassmorphic Panel Layout */
+.plugin-sidebar {
+    width: 480px !important;
+    background: rgba(255, 255, 255, 0.85) !important;
+    backdrop-filter: blur(24px) !important;
+    -webkit-backdrop-filter: blur(24px) !important;
+    border-left: 1px solid rgba(0, 0, 0, 0.06) !important;
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.02) !important;
+    transition: all 0.3s ease;
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100% !important;
+    overflow: hidden !important;
+}
+
+.plugin-chat-container {
+    background: transparent !important;
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    height: calc(100% - 73px) !important; /* height minus header */
+}
+
+.plugin-header {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
+    background: rgba(255, 255, 255, 0.4) !important;
+    flex-shrink: 0 !important;
+}
+
+/* 2. Custom Thin Scrollbar */
+.plugin-chat-messages {
+    flex: 1 !important;
+    overflow-y: auto !important; /* The single scroll container */
+    padding: 1.5rem !important;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(59, 130, 246, 0.15) transparent;
+}
+
+.plugin-chat-messages::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+
+.plugin-chat-messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.plugin-chat-messages::-webkit-scrollbar-thumb {
+    background: rgba(59, 130, 246, 0.15);
+    border-radius: 10px;
+    transition: background 0.2s ease;
+}
+
+.plugin-chat-messages::-webkit-scrollbar-thumb:hover {
+    background: rgba(59, 130, 246, 0.4);
+}
+
+/* 3. Messaging Rows */
+.plugin-message-row {
+    display: flex;
+    gap: 0.75rem;
+    width: 100%;
+    margin-bottom: 16px !important;
+    align-items: flex-start;
+    animation: message-spring 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.1) forwards;
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+}
+
+.plugin-message-row.user {
+    flex-direction: row-reverse;
+}
+
+@keyframes message-spring {
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* 4. Conversational Avatars */
+.chat-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+    border: 1px solid rgba(255,255,255,0.8);
+}
+
+.chat-avatar.ai {
+    background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+}
+
+.chat-avatar.user {
+    background: linear-gradient(135deg, #e2e8f0 0%, #94a3b8 100%);
+    color: #475569;
+}
+
+/* 5. Message Bubble Modifications */
+.plugin-bubble {
+    max-width: 95% !important; /* Take full conversational stream width */
+    width: 100% !important;
+    padding: 8px 12px !important; /* Minimalist compact padding */
+    font-size: 13.5px !important; /* Small, crisp font size */
+    line-height: 1.6 !important;
+    letter-spacing: -0.01em !important;
+    font-weight: 400 !important;
+    transition: all 0.2s ease;
+    word-break: break-word;
+}
+
+.plugin-message.user .plugin-bubble {
+    background: #f1f5f9 !important; /* Flat soft minimalist light slate capsule */
+    color: #1e293b !important;
+    border-radius: 12px !important;
+    box-shadow: none !important;
+    border: none !important;
+    max-width: 85% !important;
+    margin-left: auto !important;
+}
+
+.plugin-message.ai .plugin-bubble {
+    background: transparent !important; /* Ultimate minimalism - borderless and transparent background */
+    color: #1e293b !important;
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding-left: 0 !important; /* Flush left alignment */
+}
+
+/* 6. Adaptive Textarea and Rich Input Panel */
+.plugin-input-area {
+    flex-shrink: 0 !important;
+    background: rgba(255, 255, 255, 0.6) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border-top: 1px solid rgba(0, 0, 0, 0.06) !important;
+    padding: 1rem 1.25rem 1.25rem 1.25rem !important;
+}
+
+.plugin-input-pill {
+    background: #ffffff !important;
+    border: 1px solid rgba(0, 0, 0, 0.08) !important;
+    border-radius: 20px !important;
+    padding: 0.6rem 0.6rem 0.6rem 1.1rem !important;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.03) !important;
+    display: flex;
+    align-items: flex-end !important; /* expands upwards */
+    gap: 0.75rem;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.plugin-input-pill:focus-within {
+    border-color: #3b82f6 !important;
+    box-shadow: 0 8px 30px rgba(59, 130, 246, 0.12), 0 0 0 1px rgba(59, 130, 246, 0.05) !important;
+    transform: translateY(-1px);
+}
+
+.plugin-input-pill textarea {
+    background: transparent;
+    border: none;
+    outline: none;
+    flex: 1;
+    font-size: 0.95rem;
+    color: #111;
+    padding: 0.3rem 0;
+    resize: none;
+    font-family: inherit;
+    line-height: 1.45;
+    max-height: 120px;
+    min-height: 24px;
+}
+
+.plugin-input-pill textarea::placeholder {
+    color: #9f9f9f;
+}
+
+.plugin-send-btn {
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 50% !important;
+    background: #3b82f6 !important;
+    color: #ffffff !important;
+    border: none !important;
+    cursor: pointer !important;
+    box-shadow: 0 4px 10px rgba(59, 130, 246, 0.25) !important;
+    transition: all 0.2s ease !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin-left: 0 !important;
+    flex-shrink: 0;
+}
+
+.plugin-send-btn:hover:not(:disabled) {
+    background: #1d4ed8 !important;
+    transform: scale(1.05) rotate(-5deg);
+    box-shadow: 0 6px 14px rgba(59, 130, 246, 0.3) !important;
+}
+
+.plugin-send-btn:disabled {
+    background: #f1f1f1 !important;
+    color: #b0b0b0 !important;
+    box-shadow: none !important;
+    cursor: not-allowed !important;
+}
+
+/* 7. Redesigned Premium Empty State */
+.premium-empty-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+.glowing-orb {
+    position: absolute;
+    width: 250px;
+    height: 250px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(59, 130, 246, 0.08) 0%, rgba(96, 165, 250, 0.02) 60%, rgba(255, 255, 255, 0) 100%);
+    filter: blur(20px);
+    z-index: 0;
+    pointer-events: none;
+    animation: orb-pulse 8s infinite alternate ease-in-out;
+}
+
+@keyframes orb-pulse {
+    0% { transform: scale(0.9) translate(-5%, -5%); opacity: 0.8; }
+    100% { transform: scale(1.1) translate(5%, 5%); opacity: 1; }
+}
+
+.premium-empty-logo {
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #60a5fa 0%, #2563eb 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1.25rem;
+    box-shadow: 0 10px 20px rgba(59, 130, 246, 0.2);
+    z-index: 1;
+    position: relative;
+}
+
+.premium-empty-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #111;
+    margin-bottom: 0.4rem;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #111111 50%, #3b82f6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    z-index: 1;
+}
+
+.premium-empty-subtitle {
+    font-size: 0.82rem;
+    color: #64748b;
+    margin-bottom: 2rem;
+    max-width: 320px;
+    line-height: 1.5;
+    z-index: 1;
+    text-align: center;
+}
+
+.premium-templates-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    width: 100%;
+    max-width: 350px;
+    z-index: 1;
+}
+
+.premium-template-card {
+    background: rgba(255, 255, 255, 0.6) !important;
+    border: 1px solid rgba(0, 0, 0, 0.05) !important;
+    border-radius: 12px !important;
+    padding: 0.9rem 1rem !important;
+    cursor: pointer !important;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    text-align: left;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.01) !important;
+}
+
+.premium-template-card:hover {
+    background: #ffffff !important;
+    border-color: rgba(59, 130, 246, 0.25) !important;
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.06) !important;
+    transform: translateY(-2px);
+}
+
+.premium-template-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.premium-template-icon {
+    color: #3b82f6;
+}
+
+.premium-template-title {
+    font-size: 0.8rem !important;
+    font-weight: 600 !important;
+    color: #1e293b !important;
+    margin: 0 !important;
+}
+
+.premium-template-desc {
+    font-size: 0.75rem !important;
+    color: #64748b !important;
+    margin: 0 !important;
+    line-height: 1.4;
+}
+
+/* 8. Miscellaneous Redesigned Blocks */
+.retrieval-gaps-callout {
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: #fffdf5;
+    border-left: 3px solid #f59e0b;
+    border-radius: 4px 10px 10px 4px;
+    font-size: 0.8rem;
+    color: #b45309;
+    display: flex;
+    gap: 0.6rem;
+    align-items: flex-start;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.msg-meta {
+    margin-top: 0.5rem;
+    font-size: 0.7rem;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 500;
+}
+
+.typing-bubble {
+    background: #ffffff !important;
+    border: 1px solid rgba(0, 0, 0, 0.04) !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03) !important;
+    border-radius: 16px 16px 16px 4px !important;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0.75rem 1rem !important;
+    width: fit-content;
+}
+
+.typing-dot {
+    width: 6px;
+    height: 6px;
+    background: #3b82f6;
+    border-radius: 50%;
+    opacity: 0.4;
+    animation: typing-bounce 1.4s infinite ease-in-out;
+}
+
+@keyframes typing-bounce {
+    0%, 100% { transform: translateY(0); opacity: 0.4; }
+    50% { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+

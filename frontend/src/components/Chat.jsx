@@ -2,16 +2,110 @@ import { useEffect, useRef, useState } from 'react';
 import HomeUI from './HomeUI';
 import PDFViewer from './PDFViewer';
 
+// Custom lightweight markdown renderer for clean, conversational AI lists and blocks
+const renderMessageContent = (text) => {
+  if (!text) return null;
+
+  // Split content by code blocks first
+  const parts = text.split(/(```[\s\S]*?```)/g);
+
+  return parts.map((part, index) => {
+    if (part.startsWith('```') && part.endsWith('```')) {
+      const codeLines = part.slice(3, -3).trim().split('\n');
+      let language = '';
+      if (codeLines[0] && !codeLines[0].includes(' ') && codeLines[0].length < 15) {
+        language = codeLines.shift();
+      }
+      const codeContent = codeLines.join('\n');
+      return (
+        <div key={index} className="markdown-code-block" style={{ margin: '0.8rem 0', background: '#1e293b', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+          {language && (
+            <div style={{ background: 'rgba(255,255,255,0.05)', padding: '0.3rem 0.8rem', fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', fontFamily: 'monospace', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              {language}
+            </div>
+          )}
+          <pre style={{ margin: 0, padding: '0.8rem 1rem', overflowX: 'auto', fontFamily: 'SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace', fontSize: '0.82rem', color: '#f8fafc', lineHeight: 1.5 }}>
+            <code>{codeContent}</code>
+          </pre>
+        </div>
+      );
+    }
+
+    const lines = part.split('\n');
+    let inList = false;
+    let listItems = [];
+    const elements = [];
+
+    const flushList = (key) => {
+      if (listItems.length > 0) {
+        elements.push(
+          <ul key={`ul-${key}`} style={{ margin: '0.5rem 0 0.5rem 1.2rem', paddingLeft: 0, listStyleType: 'disc' }}>
+            {listItems.map((item, i) => (
+              <li key={i} style={{ marginBottom: '0.3rem', lineHeight: 1.6 }}>{item}</li>
+            ))}
+          </ul>
+        );
+        listItems = [];
+        inList = false;
+      }
+    };
+
+    lines.forEach((line, lineIdx) => {
+      const trimmed = line.trim();
+
+      const parseInline = (str) => {
+        const boldParts = str.split(/(\*\*.*?\*\*)/g);
+        return boldParts.map((bp, bIdx) => {
+          if (bp.startsWith('**') && bp.endsWith('**')) {
+            return <strong key={bIdx} style={{ fontWeight: 600 }}>{bp.slice(2, -2)}</strong>;
+          }
+          return bp;
+        });
+      };
+
+      if (trimmed.startsWith('### ')) {
+        flushList(lineIdx);
+        elements.push(<h4 key={lineIdx} style={{ fontSize: '14px', fontWeight: 600, margin: '0.8rem 0 0.3rem 0', color: '#1e293b' }}>{parseInline(trimmed.substring(4))}</h4>);
+      } else if (trimmed.startsWith('## ')) {
+        flushList(lineIdx);
+        elements.push(<h3 key={lineIdx} style={{ fontSize: '15px', fontWeight: 600, margin: '1rem 0 0.4rem 0', color: '#1e293b' }}>{parseInline(trimmed.substring(3))}</h3>);
+      } else if (trimmed.startsWith('# ')) {
+        flushList(lineIdx);
+        elements.push(<h2 key={lineIdx} style={{ fontSize: '16px', fontWeight: 600, margin: '1.2rem 0 0.4rem 0', color: '#1e293b' }}>{parseInline(trimmed.substring(2))}</h2>);
+      } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ') || trimmed.startsWith('• ')) {
+        inList = true;
+        listItems.push(parseInline(trimmed.substring(2)));
+      } else if (trimmed === '') {
+        flushList(lineIdx);
+        elements.push(<div key={`spacer-${lineIdx}`} style={{ height: '0.3rem' }}></div>);
+      } else {
+        flushList(lineIdx);
+        elements.push(
+          <p key={lineIdx} style={{ margin: '0.3rem 0 0.5rem 0', lineHeight: 1.6 }}>
+            {parseInline(line)}
+          </p>
+        );
+      }
+    });
+
+    flushList(lines.length);
+    return <div key={index}>{elements}</div>;
+  });
+};
+
+
 const Chat = ({ onLogout, user }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [documents, setDocuments] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState(localStorage.getItem('chat_active_tab') || 'home');
   const [selectedDoc, setSelectedDoc] = useState(JSON.parse(localStorage.getItem('chat_selected_doc')));
   const [pdfUrl, setPdfUrl] = useState(null);
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
 
   useEffect(() => {
     const init = async () => {
@@ -49,24 +143,75 @@ const Chat = ({ onLogout, user }) => {
 
   const [searchQuery, setSearchQuery] = useState('');
 
-  const handleSendMessage = (e, overrideText = null) => {
+  const handleSendMessage = async (e, overrideText = null) => {
     if (e && e.preventDefault) e.preventDefault();
     const textToSend = overrideText !== null ? overrideText : input;
-    if (!textToSend.trim()) return;
+    if (!textToSend.trim() || isLoading) return;
 
     const userMessage = { id: Date.now(), text: textToSend, sender: 'user' };
-    setMessages([...messages, userMessage]);
+    setMessages(prev => [...prev, userMessage]);
     setInput('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+    setIsLoading(true);
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      const token = localStorage.getItem('token');
+      let userId = '';
+      if (token) {
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          userId = payload.sub || '';
+        } catch (err) {
+          console.error('Failed to parse JWT token', err);
+        }
+      }
+
+      const response = await fetch('http://localhost:8000/retrieve/query', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          query: textToSend,
+          user_id: userId,
+          document_id: selectedDoc?.id || '',
+          top_k: 5
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || errorData.error || 'Failed to fetch chatbot response');
+      }
+
+      const data = await response.json();
+      
       const aiMessage = {
         id: Date.now() + 1,
-        text: "I've analyzed the context of your document. What else would you like to explore?",
+        text: data.answer?.content || 'No response content was returned.',
+        gaps: data.answer?.gaps || null,
+        modelId: data.model_id,
+        inputTokens: data.input_tokens,
+        outputTokens: data.output_tokens,
+        sender: 'ai'
+      };
+      
+      setMessages(prev => [...prev, aiMessage]);
+    } catch (err) {
+      console.error('Error querying retrieval API:', err);
+      const aiMessage = {
+        id: Date.now() + 1,
+        text: `Error: ${err.message || 'Unable to connect to retrieval API. Please ensure the backend is running.'}`,
+        isError: true,
         sender: 'ai'
       };
       setMessages(prev => [...prev, aiMessage]);
-    }, 1000);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleFileUpload = async (eOrFile, initialMessage = '') => {
@@ -133,27 +278,15 @@ const Chat = ({ onLogout, user }) => {
       setPdfUrl(URL.createObjectURL(file) + '#toolbar=0');
       setActiveTab('chat');
 
-      const fileMsg = {
-        id: Date.now(),
-        sender: 'user',
-        fileAttachment: { name: file.name }
-      };
-
-      const messagesToAdd = [fileMsg];
+      const messagesToAdd = [];
 
       if (initialMessage && initialMessage.trim()) {
         messagesToAdd.push({ id: Date.now() + 1, text: initialMessage.trim(), sender: 'user' });
+        setMessages(prev => [...prev, ...messagesToAdd]);
+        handleSendMessage(null, initialMessage.trim());
+      } else {
+        setMessages([]);
       }
-
-      const systemMessage = {
-        id: Date.now() + 2,
-        text: `Successfully uploaded ${file.name}. I'm ready to answer your questions.`,
-        sender: 'ai'
-      };
-
-      messagesToAdd.push(systemMessage);
-
-      setMessages(prev => [...prev, ...messagesToAdd]);
     } catch (err) {
       console.error(err);
       alert('Failed to upload document: ' + err.message);
@@ -352,7 +485,7 @@ const Chat = ({ onLogout, user }) => {
             </div>
 
             {/* Right side: Plugin Sidebar (Chatbot) */}
-            <aside className="plugin-sidebar" style={{ width: '450px', margin: '0', height: '100%', borderRight: 'none', borderRadius: '0' }}>
+            <aside className="plugin-sidebar" style={{ margin: '0', height: '100%', borderRight: 'none', borderRadius: '0' }}>
               <div className="plugin-header" style={{ padding: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div className="plugin-title" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'linear-gradient(135deg, #a8c0ff 0%, #3f2b96 100%)' }}></div>
@@ -367,63 +500,159 @@ const Chat = ({ onLogout, user }) => {
               <div className="plugin-chat-container" style={{ background: 'transparent' }}>
                 <div className="plugin-chat-messages">
                   {messages.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: '#999', marginTop: '4rem', padding: '1rem' }}>
-                      <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'linear-gradient(135deg, #a8c0ff 0%, #3f2b96 100%)', margin: '0 auto 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 16px rgba(93, 63, 148, 0.2)' }}>
-                         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                    <div className="premium-empty-container">
+                      <div className="glowing-orb"></div>
+                      <div className="premium-empty-logo">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5">
+                          <circle cx="12" cy="12" r="9" />
+                          <path d="M9 10a3 3 0 0 1 6 0c0 2-3 3-3 3" />
+                          <line x1="12" y1="17" x2="12.01" y2="17" strokeWidth="3" strokeLinecap="round" />
+                        </svg>
                       </div>
-                      <h3 style={{ fontSize: '1.25rem', color: '#111', marginBottom: '0.5rem', fontWeight: 600 }}>Ready to analyze</h3>
-                      <p style={{ fontSize: '0.95rem', marginBottom: '2.5rem', color: '#666' }}>Ask any question about <strong>{selectedDoc?.name || selectedDoc?.file_name || 'this document'}</strong> to get started.</p>
+                      <h3 className="premium-empty-title">Project Assistant</h3>
+                      <p className="premium-empty-subtitle">
+                        Ask questions, extract facts, or uncover hidden insights in <strong>{selectedDoc?.name || selectedDoc?.file_name || 'this document'}</strong>.
+                      </p>
                       
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', textAlign: 'left', maxWidth: '500px', margin: '0 auto' }}>
-                        <div onClick={() => handleSendMessage({ preventDefault: () => {} }, "Summarize this document in 3 bullet points")} style={{ padding: '1rem', background: '#fff', borderRadius: '12px', cursor: 'pointer', fontSize: '0.9rem', color: '#555', border: '1px solid #eaeaea', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }} onMouseEnter={e => e.currentTarget.style.borderColor = '#a8c0ff'} onMouseLeave={e => e.currentTarget.style.borderColor = '#eaeaea'}>
-                          <span style={{ display: 'block', fontWeight: 600, color: '#222', marginBottom: '0.3rem' }}>Summarize</span>
-                          What are the main points?
+                      <div className="premium-templates-grid">
+                        <div 
+                          className="premium-template-card"
+                          onClick={() => handleSendMessage({ preventDefault: () => {} }, "Summarize this document in 3 bullet points")}
+                        >
+                          <div className="premium-template-header">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="premium-template-icon"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                            <h4 className="premium-template-title">Summarize Chunks</h4>
+                          </div>
+                          <p className="premium-template-desc">Extract the most important takeaways from this document.</p>
                         </div>
-                        <div onClick={() => handleSendMessage({ preventDefault: () => {} }, "What are the key conclusions or takeaways?")} style={{ padding: '1rem', background: '#fff', borderRadius: '12px', cursor: 'pointer', fontSize: '0.9rem', color: '#555', border: '1px solid #eaeaea', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }} onMouseEnter={e => e.currentTarget.style.borderColor = '#a8c0ff'} onMouseLeave={e => e.currentTarget.style.borderColor = '#eaeaea'}>
-                          <span style={{ display: 'block', fontWeight: 600, color: '#222', marginBottom: '0.3rem' }}>Extract insights</span>
-                          Key conclusions?
+
+                        <div 
+                          className="premium-template-card"
+                          onClick={() => handleSendMessage({ preventDefault: () => {} }, "What are the key conclusions or takeaways?")}
+                        >
+                          <div className="premium-template-header">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="premium-template-icon"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                            <h4 className="premium-template-title">Extract Key Insights</h4>
+                          </div>
+                          <p className="premium-template-desc">Synthesize conclusions and potential recommendations.</p>
                         </div>
-                        <div onClick={() => handleSendMessage({ preventDefault: () => {} }, "Explain the methodology used here")} style={{ padding: '1rem', background: '#fff', borderRadius: '12px', cursor: 'pointer', fontSize: '0.9rem', color: '#555', border: '1px solid #eaeaea', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }} onMouseEnter={e => e.currentTarget.style.borderColor = '#a8c0ff'} onMouseLeave={e => e.currentTarget.style.borderColor = '#eaeaea'}>
-                          <span style={{ display: 'block', fontWeight: 600, color: '#222', marginBottom: '0.3rem' }}>Analyze approach</span>
-                          Explain methodology
-                        </div>
-                        <div onClick={() => handleSendMessage({ preventDefault: () => {} }, "Are there any action items mentioned?")} style={{ padding: '1rem', background: '#fff', borderRadius: '12px', cursor: 'pointer', fontSize: '0.9rem', color: '#555', border: '1px solid #eaeaea', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }} onMouseEnter={e => e.currentTarget.style.borderColor = '#a8c0ff'} onMouseLeave={e => e.currentTarget.style.borderColor = '#eaeaea'}>
-                          <span style={{ display: 'block', fontWeight: 600, color: '#222', marginBottom: '0.3rem' }}>Find action items</span>
-                          What's next?
+
+                        <div 
+                          className="premium-template-card"
+                          onClick={() => handleSendMessage({ preventDefault: () => {} }, "Explain the methodology used here")}
+                        >
+                          <div className="premium-template-header">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="premium-template-icon"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                            <h4 className="premium-template-title">Analyze Methodology</h4>
+                          </div>
+                          <p className="premium-template-desc">Evaluate research structure, processes, and frameworks.</p>
                         </div>
                       </div>
                     </div>
                   ) : (
-                    messages.map(msg => (
-                      <div key={msg.id} className={`plugin-message ${msg.sender}`}>
-                        <div className="plugin-bubble">
-                          {msg.fileAttachment && (
-                            <div className="attachment-pill" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', borderRadius: '8px', marginBottom: msg.text ? '0.5rem' : '0' }}>
-                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                              <span style={{ fontSize: '0.85rem', fontWeight: 500, wordBreak: 'break-all' }}>{msg.fileAttachment.name}</span>
+                    <>
+                      {messages.map(msg => (
+                        <div key={msg.id} className={`plugin-message-row ${msg.sender}`}>
+                          
+                          <div className={`plugin-message ${msg.sender}`} style={msg.isError ? { maxWidth: '85%' } : {}}>
+                            <div className="plugin-bubble" style={msg.isError ? { background: '#fef2f2', border: '1px solid #fee2e2', color: '#dc2626', borderRadius: '16px 16px 16px 4px' } : {}}>
+                              {msg.fileAttachment && (
+                                <div className="attachment-pill" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', borderRadius: '8px', marginBottom: msg.text ? '0.5rem' : '0' }}>
+                                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                                  <span style={{ fontSize: '0.85rem', fontWeight: 500, wordBreak: 'break-all' }}>{msg.fileAttachment.name}</span>
+                                </div>
+                              )}
+                              {msg.isError ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0 }}>
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                                  </svg>
+                                  <span>{msg.text}</span>
+                                </div>
+                              ) : (
+                                msg.text && <div className="markdown-body">{renderMessageContent(msg.text)}</div>
+                              )}
+                              
+                              {/* Render identified gaps for AI responses */}
+                              {msg.sender === 'ai' && msg.gaps && (
+                                <div className="retrieval-gaps-callout">
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0, marginTop: '2px' }}>
+                                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                                  </svg>
+                                  <div>
+                                    <span style={{ fontWeight: 600, display: 'block', marginBottom: '0.15rem' }}>Identified Knowledge Gaps</span>
+                                    {msg.gaps}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Render generation metadata for AI responses */}
+                              {msg.sender === 'ai' && msg.modelId && (
+                                <div className="msg-meta">
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                    <line x1="9" y1="3" x2="9" y2="21"></line>
+                                  </svg>
+                                  <span>{msg.modelId}</span>
+                                  {msg.inputTokens !== undefined && msg.outputTokens !== undefined && (
+                                    <>
+                                      <span>•</span>
+                                      <span>⚡ {(msg.inputTokens || 0) + (msg.outputTokens || 0)} tokens</span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          )}
-                          {msg.text && <div>{msg.text}</div>}
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      ))}
+
+                      {/* Premium Typing Indicator Row */}
+                      {isLoading && (
+                        <div className="plugin-message-row ai">
+                          <div className="plugin-message ai">
+                            <div className="typing-bubble">
+                              <div className="typing-dot" style={{ animationDelay: '0s' }}></div>
+                              <div className="typing-dot" style={{ animationDelay: '0.2s' }}></div>
+                              <div className="typing-dot" style={{ animationDelay: '0.4s' }}></div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 
                 <div className="plugin-input-area">
-                  <form className="plugin-input-wrapper" onSubmit={handleSendMessage} style={{ width: '100%' }}>
+                  <form className="plugin-input-wrapper" onSubmit={handleSendMessage} style={{ width: '100%', margin: '0' }}>
                     <div className="plugin-input-pill">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ cursor: 'pointer' }} onClick={() => fileInputRef.current?.click()}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ cursor: 'pointer', marginBottom: '6px' }} onClick={() => fileInputRef.current?.click()}>
                         <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
                       </svg>
-                      <input
-                        type="text"
-                        placeholder="Ask a question..."
+                      <textarea
+                        ref={textareaRef}
+                        placeholder="Ask workspace assistant..."
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={(e) => {
+                          setInput(e.target.value);
+                          // Auto-expanding textarea height
+                          e.target.style.height = 'auto';
+                          e.target.style.height = `${e.target.scrollHeight}px`;
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendMessage(e);
+                          }
+                        }}
+                        rows={1}
                       />
-                      <button type="submit" className="plugin-send-btn" disabled={!input.trim()}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                      <button type="submit" className="plugin-send-btn" disabled={!input.trim() || isLoading} style={{ marginBottom: '2px' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
                       </button>
                     </div>
                   </form>
