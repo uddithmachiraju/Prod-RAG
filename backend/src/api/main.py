@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.api.auth.router import router as auth_router
+from src.api.chats.router import router as chats_router
 from src.api.documents.router import router as document_router
 from src.api.ingestion.router import router as ingestion_router
 from src.api.llm.router import router as retrieval_router
@@ -105,6 +106,7 @@ app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(ingestion_router, prefix="/ingestion", tags=["Ingestion"])
 app.include_router(document_router, prefix="/documents", tags=["Documents"])
 app.include_router(retrieval_router, prefix="/retrieve", tags=["Retrieval"])
+app.include_router(chats_router, prefix="/chats", tags=["Chats"])
 
 
 if __name__ == "__main__":

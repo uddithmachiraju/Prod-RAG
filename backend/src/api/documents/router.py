@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, status
@@ -12,6 +13,7 @@ from src.schemas.document import (
     UploadURLRequest,
     UploadURLResponse,
 )
+from src.services.chats.chat_service import create_chat
 from src.services.storage.s3_service import generate_presigned_url, generate_view_url
 
 router = APIRouter()
@@ -47,12 +49,36 @@ async def conform_upload(payload: ConformUploadRequest, user: dict = Depends(get
         "document_id": payload.document_id,
     }
 
+    # Create a new chat 
+    chat_data: Dict[str, Any] = {
+        "user_id": str(user["_id"]),
+        "document_id": payload.document_id,
+        "title": payload.file_name,
+        "title_generated": False,
+        "last_message_preview": "",
+        "deleted": False,
+        "pinned": False,
+        "status": "active",
+        "metadata": {
+            "latency": 0
+        },
+
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+
+    chat_id = await create_chat(user=user, db=db, chat_data=chat_data)
+
     producer = get_sqs_producer()
     message_id = producer.enqueue_job(job_data=job_data)
 
     return JSONResponse(
         status_code=201,
-        content={"message": "Upload conformed and job enqueued successfully", "message_id": message_id},
+        content={
+            "message": "Upload conformed and job enqueued successfully", 
+            "message_id": message_id, 
+            "chat_id": chat_id,
+        },
     )
 
 
@@ -67,9 +93,9 @@ async def get_document_chunks(document_id: str, user: dict = Depends(get_current
         return JSONResponse(status_code=404, content={"message": "Document not found"})
 
     documents = result["documents"] or []
-    metadatas = result.get("metadatas", [])
+    # metadatas = result.get("metadatas", [])
     ids = result.get("ids", [])
-    embeddings = result.get("embeddings", [])
+    # embeddings = result.get("embeddings", [])
 
     chunks = []
     for i in range(len(documents)):
