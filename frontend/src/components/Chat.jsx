@@ -98,18 +98,32 @@ const Chat = ({ onLogout, user }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [documents, setDocuments] = useState([]);
+  const [chatHistory, setChatHistory] = useState([]);
+  const [recentChats, setRecentChats] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState(localStorage.getItem('chat_active_tab') || 'home');
   const [selectedDoc, setSelectedDoc] = useState(JSON.parse(localStorage.getItem('chat_selected_doc')));
   const [pdfUrl, setPdfUrl] = useState(null);
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
+  const profileMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const init = async () => {
-      await fetchDocuments();
+      await fetchAllData();
       if (activeTab === 'document' && selectedDoc && !pdfUrl) {
         handleSelectDoc(selectedDoc);
       }
@@ -125,19 +139,20 @@ const Chat = ({ onLogout, user }) => {
     localStorage.setItem('chat_selected_doc', JSON.stringify(selectedDoc));
   }, [selectedDoc]);
 
-  const fetchDocuments = async () => {
+  const fetchAllData = async () => {
     try {
-      const response = await fetch('http://localhost:8000/documents/', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setDocuments(data);
-      }
+      const headers = { 'Authorization': `Bearer ${localStorage.getItem('token')}` };
+      const [docsRes, chatsRes, recentRes] = await Promise.all([
+        fetch('http://localhost:8000/documents/', { headers }),
+        fetch('http://localhost:8000/chats/chats', { headers }),
+        fetch('http://localhost:8000/chats/recent-chats', { headers })
+      ]);
+      
+      if (docsRes.ok) setDocuments(await docsRes.json());
+      if (chatsRes.ok) setChatHistory(await chatsRes.json());
+      if (recentRes.ok) setRecentChats(await recentRes.json());
     } catch (err) {
-      console.error('Error fetching documents:', err);
+      console.error('Error fetching data:', err);
     }
   };
 
@@ -168,6 +183,11 @@ const Chat = ({ onLogout, user }) => {
         }
       }
 
+      const chatId = selectedDoc?.chat_id;
+      if (!chatId) {
+        throw new Error('No chat session is associated with the selected document. Please upload a document first.');
+      }
+
       const response = await fetch('http://localhost:8000/retrieve/query', {
         method: 'POST',
         headers: {
@@ -176,8 +196,9 @@ const Chat = ({ onLogout, user }) => {
         },
         body: JSON.stringify({
           query: textToSend,
+          chat_id: chatId,
           user_id: userId,
-          document_id: selectedDoc?.id || '',
+          document_id: selectedDoc?.document_id || selectedDoc?.id || '',
           top_k: 5
         })
       });
@@ -272,9 +293,12 @@ const Chat = ({ onLogout, user }) => {
         throw new Error(`Upload confirmation failed: ${JSON.stringify(errorDetail)}`);
       }
 
-      const newDoc = { name: file.name, id: documentId, file_key: file_key };
+      const { chat_id } = await confirmResponse.json();
+      const newDoc = { name: file.name, id: documentId, file_key: file_key, chat_id };
       setDocuments([...documents, newDoc]);
-      setSelectedDoc(newDoc);
+      setChatHistory([{ title: file.name, document_id: documentId, chat_id, created_at: new Date().toISOString() }, ...chatHistory]);
+      setRecentChats([{ title: file.name, document_id: documentId, chat_id, created_at: new Date().toISOString() }, ...recentChats]);
+      setSelectedDoc({ title: file.name, document_id: documentId, chat_id });
       setPdfUrl(URL.createObjectURL(file) + '#toolbar=0');
       setActiveTab('chat');
 
@@ -295,20 +319,46 @@ const Chat = ({ onLogout, user }) => {
     }
   };
 
-  const handleSelectDoc = async (doc) => {
-    setSelectedDoc(doc);
+  const handleSelectDoc = async (chat) => {
+    setSelectedDoc(chat);
     setActiveTab('chat');
     setPdfUrl(null); // Clear previous
+    setMessages([]); // Clear previous messages
 
     try {
-      const response = await fetch(`http://localhost:8000/documents/view-url/${encodeURIComponent(doc.file_key)}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+      const chatId = chat.chat_id || chat.id;
+      if (chatId) {
+        const chatRes = await fetch(`http://localhost:8000/chats/${chatId}`, {
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+        if (chatRes.ok) {
+          const chatData = await chatRes.json();
+          if (chatData && chatData.messages) {
+            const formattedMessages = chatData.messages.map(m => ({
+              id: m.message_id,
+              text: m.content,
+              sender: m.role === 'user' ? 'user' : 'ai',
+            }));
+            setMessages(formattedMessages);
+          }
         }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setPdfUrl(data.url + '#toolbar=0');
+      }
+
+      const documentId = chat.document_id || chat.id;
+      const doc = documents.find(d => d._id === documentId || d.id === documentId);
+      
+      if (doc && doc.file_key) {
+        const response = await fetch(`http://localhost:8000/documents/view-url/${encodeURIComponent(doc.file_key)}`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setPdfUrl(data.url + '#toolbar=0');
+        }
+      } else {
+        console.warn("Could not find document file_key for chat", chat);
       }
     } catch (err) {
       console.error('Error fetching view URL:', err);
@@ -383,15 +433,72 @@ const Chat = ({ onLogout, user }) => {
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
               </svg>
             </button>
-            <div className="sidebar-avatar" onClick={onLogout} title="Log Out" style={{ cursor: 'pointer' }}>
-              <img src="https://i.pravatar.cc/150?img=11" alt="User Avatar" />
+            <div style={{ position: 'relative' }} ref={profileMenuRef}>
+              <div 
+                className="sidebar-avatar" 
+                onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)} 
+                title="Profile" 
+                style={{ cursor: 'pointer' }}
+              >
+                {user?.full_name ? user.full_name.substring(0, 2).toUpperCase() : (user?.username || 'U').substring(0, 2).toUpperCase()}
+              </div>
+
+              {isProfileMenuOpen && (
+                <div className="profile-popup" style={{
+                  position: 'absolute',
+                  bottom: '0',
+                  left: '48px',
+                  background: '#fff',
+                  borderRadius: '12px',
+                  boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                  width: '220px',
+                  border: '1px solid #eaeaea',
+                  zIndex: 100,
+                  overflow: 'hidden',
+                  animation: 'fadeInScale 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
+                }}>
+                  <div style={{ padding: '1rem', borderBottom: '1px solid #eaeaea', background: '#fafafa' }}>
+                    <div style={{ fontWeight: 600, color: '#111', fontSize: '0.9rem', marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {user?.full_name || 'User'}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {user?.username || 'user@example.com'}
+                    </div>
+                  </div>
+                  <div style={{ padding: '0.5rem' }}>
+                    <button 
+                      onClick={onLogout}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        padding: '0.5rem 0.75rem',
+                        border: 'none',
+                        background: 'transparent',
+                        color: '#dc2626',
+                        fontSize: '0.85rem',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        borderRadius: '6px',
+                        textAlign: 'left'
+                      }}
+                      onMouseOver={(e) => e.currentTarget.style.background = '#fef2f2'}
+                      onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                      Log Out
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </aside>
 
         {/* Dynamic Main Content */}
         {activeTab === 'home' ? (
-          <HomeUI onLogout={onLogout} user={user} onUpload={handleFileUpload} documents={documents} onSelectDoc={handleSelectDoc} />
+          <HomeUI onLogout={onLogout} user={user} onUpload={handleFileUpload} documents={recentChats} onSelectDoc={handleSelectDoc} />
         ) : activeTab === 'history' ? (
           <div style={{ flex: 1, padding: '3rem', background: '#f4f4f5', overflowY: 'auto', display: 'flex', justifyContent: 'center' }}>
             <div style={{ width: '100%', maxWidth: '800px' }}>
@@ -412,9 +519,9 @@ const Chat = ({ onLogout, user }) => {
               </div>
               
               {(() => {
-                const filteredDocs = documents.filter(doc => (doc.name || doc.file_name || '').toLowerCase().includes(searchQuery.toLowerCase()));
+                const filteredDocs = chatHistory.filter(doc => (doc.title || doc.name || doc.file_name || '').toLowerCase().includes(searchQuery.toLowerCase()));
                 
-                if (documents.length === 0) {
+                if (chatHistory.length === 0) {
                   return (
                     <div style={{ textAlign: 'center', padding: '4rem 2rem', background: '#fff', borderRadius: '16px', border: '1px dashed #ddd' }}>
                       <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ccc" strokeWidth="1.5" style={{ margin: '0 auto 1rem' }}>
@@ -443,12 +550,12 @@ const Chat = ({ onLogout, user }) => {
                 return (
                   <div className="premium-chats-list">
                     {filteredDocs.map((doc, index) => (
-                      <div key={doc.id || index} className="premium-chat-item" onClick={() => handleSelectDoc(doc)}>
+                      <div key={doc.chat_id || doc.id || index} className="premium-chat-item" onClick={() => handleSelectDoc(doc)}>
                         <div className="list-icon-wrapper">
                           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
                         </div>
                         <div className="list-content">
-                          <h4 className="list-title">{doc.name || doc.file_name || 'Unnamed Document'}</h4>
+                          <h4 className="list-title">{doc.title || doc.name || doc.file_name || 'Unnamed Document'}</h4>
                           <p className="list-meta">Previous session</p>
                         </div>
                         <div className="list-arrow">

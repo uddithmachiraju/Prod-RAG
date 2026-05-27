@@ -37,10 +37,12 @@ const HomeUI = ({ onLogout, user, onUpload, documents = [], onSelectDoc }) => {
 
       <div className="premium-content-wrapper">
         <div className="premium-greeting-section">
-          <h1 className="premium-greeting-heading">
-            Good morning, <span className="premium-greeting-name">{firstName}</span>
-          </h1>
-          <p className="premium-greeting-subtitle">What will we analyze today?</p>
+          <div>
+            <h1 className="premium-greeting-heading">
+              Good morning, <span className="premium-greeting-name">{firstName}</span>
+            </h1>
+            <p className="premium-greeting-subtitle">What will we analyze today?</p>
+          </div>
         </div>
 
         <div className="premium-chat-container">
@@ -88,18 +90,18 @@ const HomeUI = ({ onLogout, user, onUpload, documents = [], onSelectDoc }) => {
           </div>
         </div>
 
-        {documents && documents.length > 0 ? (
-          <div className="premium-documents-section">
-            <h3 className="section-title">Recent Chats</h3>
+        <div className="premium-documents-section">
+          <h3 className="section-title">Recent Chats</h3>
+          {documents && documents.length > 0 ? (
             <div className="premium-chats-list">
               {documents.slice(0, 4).map((doc, index) => (
-                <div key={doc.id || index} className="premium-chat-item" onClick={() => onSelectDoc && onSelectDoc(doc)}>
+                <div key={doc.chat_id || doc.id || index} className="premium-chat-item" onClick={() => onSelectDoc && onSelectDoc(doc)}>
                   <div className="list-icon-wrapper">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
                   </div>
                   <div className="list-content">
-                    <h4 className="list-title">{doc.name}</h4>
-                    <p className="list-meta">Started recently</p>
+                    <h4 className="list-title">{doc.title || doc.name || 'Unnamed Chat'}</h4>
+                    <p className="list-meta">{doc.last_message_preview || 'Started recently'}</p>
                   </div>
                   <div className="list-arrow">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
@@ -107,23 +109,12 @@ const HomeUI = ({ onLogout, user, onUpload, documents = [], onSelectDoc }) => {
                 </div>
               ))}
             </div>
-          </div>
-        ) : (
-          <div className="premium-documents-section empty-state">
-            <h3 className="section-title">Get Started</h3>
-            <div className="premium-chats-list">
-              <div className="premium-chat-item upload-item" onClick={() => fileInputRef.current?.click()}>
-                <div className="list-icon-wrapper upload-icon">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                </div>
-                <div className="list-content">
-                  <h4 className="list-title">Upload a Document</h4>
-                  <p className="list-meta">Start a new analysis</p>
-                </div>
-              </div>
+          ) : (
+            <div style={{ padding: '2rem 1rem', textAlign: 'center', color: '#888', background: 'rgba(255,255,255,0.5)', borderRadius: '12px', border: '1px dashed #ddd' }}>
+              No recent chats. Start a new analysis above!
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </main>
   );
