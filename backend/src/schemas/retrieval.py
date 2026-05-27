@@ -7,6 +7,7 @@ class RetrievalRequest(BaseModel):
     """Request schema for retrieving relevant document chunks based on a query."""
 
     query: str = Field(..., description="The user's query for which relevant document chunks are to be retrieved.")
+    chat_id: str = Field(..., description="Identifier of the chat session to which this query belongs.")
     user_id: str = Field(..., description="Identifier of the user making the query.")
     document_id: str = Field(..., description="Identifier of a specific document to search within. If not provided, search across all documents.")
     top_k: int = Field(default=5, description="The number of top relevant chunks to retrieve.")
