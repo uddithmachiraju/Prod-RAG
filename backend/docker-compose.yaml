@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-backend
+    command: >
+      python -m src.api.main
+    expose:
+      - "8000"
+    env_file:
+      - ../.env
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:latest
+    container_name: rag-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  worker:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-worker
+    command: >
+      python -m src.workers.ingestion_worker
+    env_file:
+      - ../.env
+    restart: unless-stopped
+
