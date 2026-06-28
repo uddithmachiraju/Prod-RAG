@@ -1,6 +1,7 @@
 from typing import Dict, List
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from src.core.auth import get_current_user
@@ -46,3 +47,25 @@ async def query_retrieval(request: RetrievalRequest, user: Dict = Depends(get_cu
         db=db,
     )
     return llm_response
+
+
+@router.post("/query/stream", status_code=200, response_class=StreamingResponse)
+async def query_retrieval_stream(request: RetrievalRequest, user: Dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Endpoint to handle retrieval queries with streaming response."""
+
+    await add_message_to_chat(
+        chat_id=request.chat_id,
+        payload={
+            "user_id": str(user["_id"]),
+            "role": "user",
+            "content": request.query,
+        },
+        db=db,
+    )
+    retrieved_chunks: List[RetrievalResponse] = await retrieval_service.search_query(request)
+
+    async def stream_response():
+        for chunk in llm_service.stream(query=request.query, retrievals=retrieved_chunks):
+            yield chunk
+
+    return StreamingResponse(stream_response(), media_type="text/event-stream")
