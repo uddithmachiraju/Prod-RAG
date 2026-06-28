@@ -146,8 +146,41 @@ class LLMModel:
             logger.error(f"Error invoking Bedrock LLM Model: {e}")
             raise
 
-    def stream(self):
-        pass
+    def stream(self, query: str, retrievals: List[RetrievalResponse]) -> Any:
+        """Generate a streaming response from Bedrock using tool use."""
+
+        prompt = self.render_prompt_template(user_question=query, retrievals=retrievals)
+        logger.info(f"Invoking Bedrock LLM with prompt: {prompt}")
+
+        try:
+            response = self.client.converse_stream(
+                modelId=self.model_id,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [{"text": prompt}],
+                    }
+                ],
+                inferenceConfig={
+                    "maxTokens": 5000,
+                    "temperature": 0.2,
+                    "topP": 0.9,
+                },
+                toolConfig=self.TOOL_CONFIG,
+            )
+
+            for event in response["stream"]:
+                if "contentBlockDelta" in event:
+                    delta = event["contentBlockDelta"]["delta"]
+                    if "text" in delta:
+                        yield delta["text"]
+                elif "messageStop" in event:
+                    logger.info("Bedrock LLM stream stopped.")
+                    break
+
+        except Exception as e:
+            logger.error(f"Error invoking Bedrock LLM Model stream: {e}")
+            raise
 
     def health_check(self) -> bool:
         try:
