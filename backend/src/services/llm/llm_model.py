@@ -14,6 +14,7 @@ settings = get_settings()
 logger = get_logger(__name__)
 
 llm_prompt = (Path(__file__).parent / "prompts" / "llm_response.mustache").read_text("utf-8")
+llm_stream_prompt = (Path(__file__).parent / "prompts" / "llm_response_stream.mustache").read_text("utf-8")
 
 
 class LLMModel:
@@ -73,10 +74,10 @@ class LLMModel:
             ],
         }
 
-    def render_prompt_template(self, user_question: str, retrievals: List[RetrievalResponse]) -> str:
+    def render_prompt_template(self, user_question: str, retrievals: List[RetrievalResponse], template: str = llm_prompt) -> str:
         """Render the prompt template for the LLM."""
         context = self._map_context(user_question=user_question, retrievals=retrievals)
-        return render(template=llm_prompt, context=context)
+        return render(template=template, context=context)
 
     def _extract_tool_input(self, response: Dict[str, Any]) -> Dict[str, Any]:
         """Extract tool use input block from Bedrock converse response."""
@@ -146,10 +147,10 @@ class LLMModel:
             logger.error(f"Error invoking Bedrock LLM Model: {e}")
             raise
 
-    def stream(self, query: str, retrievals: List[RetrievalResponse]) -> Any:
+    def stream(self, query: str, retrievals: List[RetrievalResponse], template: str = llm_stream_prompt) -> Any:
         """Generate a streaming response from Bedrock using tool use."""
 
-        prompt = self.render_prompt_template(user_question=query, retrievals=retrievals)
+        prompt = self.render_prompt_template(user_question=query, retrievals=retrievals, template=template)
         logger.info(f"Invoking Bedrock LLM with prompt: {prompt}")
 
         try:
@@ -166,7 +167,7 @@ class LLMModel:
                     "temperature": 0.2,
                     "topP": 0.9,
                 },
-                toolConfig=self.TOOL_CONFIG,
+                # toolConfig=self.TOOL_CONFIG,
             )
 
             for event in response["stream"]:

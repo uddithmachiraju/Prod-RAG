@@ -43,7 +43,7 @@ async def query_retrieval(request: RetrievalRequest, user: Dict = Depends(get_cu
             "output_tokens": llm_response.output_tokens,
             "model": llm_response.model_id,
             "latency": 0,
-        }, 
+        },
         db=db,
     )
     return llm_response

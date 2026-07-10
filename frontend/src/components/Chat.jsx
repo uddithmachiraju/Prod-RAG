@@ -221,48 +221,64 @@ const Chat = ({ onLogout, user }) => {
       if (!reader) throw new Error('Streaming not supported by this browser or response has no body');
 
       const decoder = new TextDecoder();
-      let sseBuffer = '';
+      let buffer = '';
       let done = false;
+
+      const appendText = (text) => {
+        if (!text) return;
+        setMessages(prev => prev.map(m => m.id === aiId ? { ...m, text: (m.text || '') + text } : m));
+      };
+
       try {
-        while (true) {
+        while (!done) {
           const { done: readerDone, value } = await reader.read();
           if (readerDone) break;
+
           const chunk = decoder.decode(value, { stream: true });
-          sseBuffer += chunk;
+          if (!chunk) continue;
 
-          // Process complete SSE events separated by double newlines
-          let idx;
-          while ((idx = sseBuffer.indexOf('\n\n')) !== -1) {
-            const rawEvent = sseBuffer.slice(0, idx);
-            sseBuffer = sseBuffer.slice(idx + 2);
+          const looksLikeSse = chunk.includes('data:') || chunk.includes('event:') || chunk.includes('\n\n');
 
-            const lines = rawEvent.split(/\r?\n/);
-            const isDone = lines.some(l => l.trim() === 'event: done');
-            if (isDone) {
-              done = true;
-              break;
+          if (looksLikeSse) {
+            buffer += chunk;
+
+            let idx;
+            while ((idx = buffer.indexOf('\n\n')) !== -1) {
+              const rawEvent = buffer.slice(0, idx);
+              buffer = buffer.slice(idx + 2);
+
+              const lines = rawEvent.split(/\r?\n/);
+              const isDone = lines.some(l => l.trim() === 'event: done');
+              if (isDone) {
+                done = true;
+                break;
+              }
+
+              const dataParts = lines
+                .filter(l => l.startsWith('data:'))
+                .map(l => l.replace(/^data:\s?/, ''));
+
+              const eventData = dataParts.join('\n').trim();
+              if (eventData) {
+                appendText(eventData);
+              }
             }
-
-            // Extract lines starting with 'data:' and join them
-            const dataParts = lines
-              .filter(l => l.startsWith('data:'))
-              .map(l => l.replace(/^data:\s?/, ''));
-            const eventData = dataParts.join('\n');
-            if (eventData) {
-              setMessages(prev => prev.map(m => m.id === aiId ? { ...m, text: (m.text || '') + eventData } : m));
-            }
+          } else {
+            appendText(chunk);
           }
-          if (done) break;
         }
 
-        // Flush any remaining buffer
-        if (sseBuffer.trim()) {
-          const lines = sseBuffer.split(/\r?\n/);
+        if (!done && buffer.trim()) {
+          const lines = buffer.split(/\r?\n/);
           const dataParts = lines
             .filter(l => l.startsWith('data:'))
             .map(l => l.replace(/^data:\s?/, ''));
-          const eventData = dataParts.join('\n');
-          if (eventData) setMessages(prev => prev.map(m => m.id === aiId ? { ...m, text: (m.text || '') + eventData } : m));
+          const eventData = dataParts.join('\n').trim();
+          if (eventData) {
+            appendText(eventData);
+          } else if (buffer.trim()) {
+            appendText(buffer);
+          }
         }
       } catch (streamErr) {
         console.error('Error reading stream:', streamErr);
