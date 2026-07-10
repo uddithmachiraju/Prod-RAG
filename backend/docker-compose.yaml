@@ -13,6 +13,13 @@ services:
     env_file:
       - ../.env
     restart: unless-stopped
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: rebuild
+          path: ./requirements.txt
 
   nginx:
     image: nginx:latest
@@ -35,4 +42,11 @@ services:
     env_file:
       - ../.env
     restart: unless-stopped
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src/services/workers
+        - action: rebuild
+          path: ./requirements.txt
 
