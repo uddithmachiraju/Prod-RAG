@@ -65,7 +65,37 @@ async def query_retrieval_stream(request: RetrievalRequest, user: Dict = Depends
     retrieved_chunks: List[RetrievalResponse] = await retrieval_service.search_query(request)
 
     async def stream_response():
-        for chunk in llm_service.stream(query=request.query, retrievals=retrieved_chunks):
-            yield chunk
+        assistant_response = ""
+        usage, stop_reason = 0, "Unknown"
+
+        try:
+
+            for chunk in llm_service.stream(query=request.query, retrievals=retrieved_chunks):
+                if chunk["type"] == "text":
+                    assistant_response += chunk["content"]
+                    yield chunk["content"]
+
+                elif chunk["type"] == "metadata":
+                    usage = chunk["usage"]
+                    latency = chunk["latency"]
+                    model = chunk["model"]
+
+                elif chunk["type"] == "stop":
+                    stop_reason = chunk["reason"]
+
+        finally:
+            await add_message_to_chat(
+                chat_id=request.chat_id,
+                payload={
+                    "user_id": str(user["_id"]),
+                    "role": "assistant",
+                    "content": assistant_response,
+                    "input_tokens": usage["inputTokens"],
+                    "output_tokens": usage["outputTokens"],
+                    "model": model,
+                    "latency(ms)": latency,
+                },
+                db=db,
+            )
 
     return StreamingResponse(stream_response(), media_type="text/event-stream")

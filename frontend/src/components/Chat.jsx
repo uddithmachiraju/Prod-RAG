@@ -110,6 +110,8 @@ const Chat = ({ onLogout, user }) => {
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
   const profileMenuRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const shouldAutoScrollRef = useRef(true);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -138,6 +140,33 @@ const Chat = ({ onLogout, user }) => {
   useEffect(() => {
     localStorage.setItem('chat_selected_doc', JSON.stringify(selectedDoc));
   }, [selectedDoc]);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const distanceFromBottom = container.scrollHeight - (container.scrollTop + container.clientHeight);
+      shouldAutoScrollRef.current = distanceFromBottom <= 120;
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container || !shouldAutoScrollRef.current) return;
+
+    const scrollToBottom = () => {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    };
+
+    const frame = window.requestAnimationFrame(scrollToBottom);
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages, isLoading]);
 
   const fetchAllData = async () => {
     try {
@@ -668,7 +697,7 @@ const Chat = ({ onLogout, user }) => {
               </div>
 
               <div className="plugin-chat-container" style={{ background: 'transparent' }}>
-                <div className="plugin-chat-messages">
+                <div className="plugin-chat-messages" ref={messagesContainerRef}>
                   {messages.length === 0 ? (
                     <div className="premium-empty-container">
                       <div className="glowing-orb"></div>

@@ -137,7 +137,7 @@ class LLMModel:
 
             return LLMResponse(
                 answer=structured_response,
-                model_id=self.model_id,  # self.model_id is always available
+                model_id=self.model_id,
                 input_tokens=usage.get("inputTokens"),
                 output_tokens=usage.get("outputTokens"),
                 stop_reason=stop_reason,
@@ -171,13 +171,30 @@ class LLMModel:
             )
 
             for event in response["stream"]:
+
                 if "contentBlockDelta" in event:
                     delta = event["contentBlockDelta"]["delta"]
                     if "text" in delta:
-                        yield delta["text"]
+                        yield {
+                            "type": "text",
+                            "content": delta["text"],
+                        }
+
+                elif "metadata" in event:
+                    metadata = event["metadata"]
+
+                    yield {
+                        "type": "metadata",
+                        "usage": metadata.get("usage", {}),
+                        "latency": metadata.get("metrics", {}).get("latencyMs"),
+                        "model": self.model_id,
+                    }
+
                 elif "messageStop" in event:
-                    logger.info("Bedrock LLM stream stopped.")
-                    break
+                    yield {
+                        "type": "stop",
+                        "reason": event["messageStop"]["stopReason"],
+                    }
 
         except Exception as e:
             logger.error(f"Error invoking Bedrock LLM Model stream: {e}")

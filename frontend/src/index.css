@@ -2038,6 +2038,7 @@ body {
     /* expands upwards */
     gap: 0.75rem;
     transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    width: 100% !important;
 }
 
 .plugin-input-pill:focus-within {

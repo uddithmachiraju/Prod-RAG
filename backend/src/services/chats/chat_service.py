@@ -41,11 +41,11 @@ async def get_user_chat(chat_id: str, user: dict, db: AsyncIOMotorDatabase) -> A
         chat = await db["chats"].find_one({"_id": ObjectId(chat_id), "user_id": str(user["_id"]), "deleted": False})
     except Exception:
         return None
-    
+
     if not chat:
         return None
 
-    messages = await db["messages"].find({"chat_id": chat_id, "deleted": False}).sort("received_at", 1).to_list(length=1000)
+    messages = await db["messages"].find({"chat_id": chat_id}).sort("received_at", 1).to_list(length=1000)
 
     serialized_messages = [
         {
@@ -75,8 +75,7 @@ async def get_user_recent_chats(user: dict, db: AsyncIOMotorDatabase, limit: int
     chats_collection = db["chats"]
 
     chats_cursor = (
-        chats_collection
-        .find(
+        chats_collection.find(
             {
                 "user_id": str(user["_id"]),
                 "deleted": False,
@@ -122,10 +121,10 @@ async def add_message_to_chat(chat_id: str, payload: Dict[str, Any], db: AsyncIO
     if message_data["role"] == "assistant":
         message_data.update(
             {
-            "input_tokens": payload.get("input_tokens"),
-            "output_tokens": payload.get("output_tokens"),
-            "model": payload.get("model"),
-            "latency": payload.get("latency"),
+                "input_tokens": payload.get("input_tokens"),
+                "output_tokens": payload.get("output_tokens"),
+                "model": payload.get("model"),
+                "latency": payload.get("latency"),
             }
         )
 
@@ -143,7 +142,7 @@ async def add_message_to_chat(chat_id: str, payload: Dict[str, Any], db: AsyncIO
                     "last_message_preview": content[:100] if isinstance(content, str) else str(content)[:100],
                     "updated_at": datetime.now(timezone.utc),
                 }
-            }
+            },
         )
     except Exception:
         pass
