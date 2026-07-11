@@ -6,6 +6,8 @@ import src.services.authentication.auth as auth_service
 from src.db.mongo_db import get_db
 from src.schemas.user_login import UserLoginRequest, UserLoginResponse
 from src.schemas.user_registration import (
+    RefreshRequest,
+    RefreshResponse,
     UserRegistrationRequest,
     UserRegistrationResponse,
 )
@@ -31,3 +33,17 @@ async def login_user(payload: UserLoginRequest, request: Request, db: AsyncIOMot
     """Authenticate the user and return a JWT token if successful."""
 
     return await auth_service.login_user(payload, request, db)
+
+
+@router.post("/refresh", response_model=RefreshResponse)
+async def refresh_token(payload: RefreshRequest, db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Refresh the user's JWT tokens."""
+
+    return await auth_service.refresh_token(payload, db)
+
+
+@router.post("/logout", status_code=200)
+async def logout_user(request: RefreshRequest, db: AsyncIOMotorDatabase = Depends(get_db)) -> dict:
+    """Logout the user by invalidating their refresh token."""
+
+    return await auth_service.logout_user(request, db)

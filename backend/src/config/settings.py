@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = Field(default=..., description="Secret key for JWT token generation")
     JWT_ALGORITHM: str = Field(default="HS256", description="Algorithm used for JWT token generation")
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, description="Access token expiration time in minutes")
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, description="Refresh token expiration time in days")
 
     # Email Verification Settings
     SMTP_HOST: str = Field(default="smtp.gmail.com", description="SMTP server host")

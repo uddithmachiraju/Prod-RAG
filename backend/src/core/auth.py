@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
+from uuid import uuid4
 
 from bson import ObjectId
 from fastapi import Depends, HTTPException, status
@@ -20,6 +21,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 def create_user_token(user_id: str) -> str:
     """Generate a JWT token for the given user id."""
 
+    jti = str(uuid4())
     user_sub = str(user_id)
     now = datetime.now(timezone.utc)
     issued_at = int(now.timestamp())
@@ -27,14 +29,37 @@ def create_user_token(user_id: str) -> str:
 
     return jwt.encode(
         {
+            "jti": jti,
             "sub": user_sub,
             "iat": issued_at,
             "exp": expires_at,
+            "type": "access",
         },
         settings.JWT_SECRET_KEY,
         algorithm=settings.JWT_ALGORITHM,
     )
 
+
+def create_refresh_token(user_id: str) -> tuple[str, str]:
+    """Generate a refresh JWT token for the given user id."""
+
+    jti = str(uuid4())
+    user_sub = str(user_id)
+    now = datetime.now(timezone.utc)
+    issued_at = int(now.timestamp())
+    expires_at = int((now + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)).timestamp())
+
+    return jwt.encode(
+        {
+            "jti": jti,
+            "sub": user_sub,
+            "iat": issued_at,
+            "exp": expires_at,
+            "type": "refresh",
+        },
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    ), jti
 
 # Utility function to decode a JWT token and extract the user_id (subject) from it.
 def decode_user_token(token: str) -> Any:

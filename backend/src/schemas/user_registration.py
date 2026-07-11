@@ -19,3 +19,17 @@ class UserRegistrationResponse(BaseModel):
     is_active: bool = Field(..., description="Whether the user account is active")
     is_email_verified: bool = Field(..., description="Whether the user's email is verified")
     created_at: str = Field(..., description="Timestamp when the user account was created")
+
+
+class RefreshRequest(BaseModel):
+    """Request model for refreshing JWT tokens."""
+
+    refresh_token: str = Field(..., description="JWT refresh token for the user")
+
+
+class RefreshResponse(BaseModel):
+    """Response model for refreshing JWT tokens."""
+
+    access_token: str = Field(..., description="New JWT access token for the user")
+    refresh_token: str = Field(..., description="New JWT refresh token for the user")
+    token_type: str = Field(..., description="Type of the token, typically 'bearer'")

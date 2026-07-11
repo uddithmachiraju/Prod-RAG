@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { requestWithRefresh } from '../utils/auth';
 import HomeUI from './HomeUI';
 import PDFViewer from './PDFViewer';
 
@@ -170,11 +171,10 @@ const Chat = ({ onLogout, user }) => {
 
   const fetchAllData = async () => {
     try {
-      const headers = { 'Authorization': `Bearer ${localStorage.getItem('token')}` };
       const [docsRes, chatsRes, recentRes] = await Promise.all([
-        fetch('http://localhost:80/documents/', { headers }),
-        fetch('http://localhost:80/chats/chats', { headers }),
-        fetch('http://localhost:80/chats/recent-chats', { headers })
+        requestWithRefresh('http://localhost:80/documents/', { headers: { 'Content-Type': 'application/json' } }, { onAuthFailure: onLogout }),
+        requestWithRefresh('http://localhost:80/chats/chats', { headers: { 'Content-Type': 'application/json' } }, { onAuthFailure: onLogout }),
+        requestWithRefresh('http://localhost:80/chats/recent-chats', { headers: { 'Content-Type': 'application/json' } }, { onAuthFailure: onLogout })
       ]);
       
       if (docsRes.ok) setDocuments(await docsRes.json());
@@ -221,11 +221,10 @@ const Chat = ({ onLogout, user }) => {
       const aiId = Date.now() + 1;
       setMessages(prev => [...prev, { id: aiId, text: '', sender: 'ai' }]);
 
-      const streamResponse = await fetch('http://localhost:80/retrieve/query/stream', {
+      const streamResponse = await requestWithRefresh('http://localhost:80/retrieve/query/stream', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           query: textToSend,
@@ -234,7 +233,7 @@ const Chat = ({ onLogout, user }) => {
           document_id: selectedDoc?.document_id || selectedDoc?.id || '',
           top_k: 5
         })
-      });
+      }, { onAuthFailure: onLogout });
 
       if (!streamResponse.ok) {
         let errText = 'Failed to fetch chatbot response';
@@ -336,18 +335,17 @@ const Chat = ({ onLogout, user }) => {
 
     try {
       // 1. Get presigned URL
-      const urlResponse = await fetch('http://localhost:80/documents/upload-url', {
+      const urlResponse = await requestWithRefresh('http://localhost:80/documents/upload-url', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
           document_id: documentId,
           file_name: file.name,
           content_type: file.type
         }),
-      });
+      }, { onAuthFailure: onLogout });
 
       if (!urlResponse.ok) throw new Error('Failed to get upload URL');
       const { url, file_key } = await urlResponse.json();
@@ -364,11 +362,10 @@ const Chat = ({ onLogout, user }) => {
       if (!uploadResponse.ok) throw new Error('S3 Upload failed');
 
       // 3. Confirm upload with metadata
-      const confirmResponse = await fetch('http://localhost:80/documents/conform-upload', {
+      const confirmResponse = await requestWithRefresh('http://localhost:80/documents/conform-upload', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
           document_id: documentId,
@@ -377,7 +374,7 @@ const Chat = ({ onLogout, user }) => {
           file_type: file.type,
           file_size: file.size
         }),
-      });
+      }, { onAuthFailure: onLogout });
 
       if (!confirmResponse.ok) {
         const errorDetail = await confirmResponse.json();
@@ -420,9 +417,9 @@ const Chat = ({ onLogout, user }) => {
     try {
       const chatId = chat.chat_id || chat.id;
       if (chatId) {
-        const chatRes = await fetch(`http://localhost:80/chats/${chatId}`, {
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-        });
+        const chatRes = await requestWithRefresh(`http://localhost:80/chats/${chatId}`, {
+          headers: { 'Content-Type': 'application/json' }
+        }, { onAuthFailure: onLogout });
         if (chatRes.ok) {
           const chatData = await chatRes.json();
           if (chatData && chatData.messages) {
@@ -440,11 +437,11 @@ const Chat = ({ onLogout, user }) => {
       const doc = documents.find(d => d._id === documentId || d.id === documentId);
       
       if (doc && doc.file_key) {
-        const response = await fetch(`http://localhost:80/documents/view-url/${encodeURIComponent(doc.file_key)}`, {
+        const response = await requestWithRefresh(`http://localhost:80/documents/view-url/${encodeURIComponent(doc.file_key)}`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
+            'Content-Type': 'application/json'
           }
-        });
+        }, { onAuthFailure: onLogout });
         if (response.ok) {
           const data = await response.json();
           setPdfUrl(data.url + '#toolbar=0');

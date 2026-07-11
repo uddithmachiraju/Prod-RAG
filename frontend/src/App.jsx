@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import './index.css';
+import { useEffect, useState } from 'react';
 import Auth from './components/Auth';
 import Chat from './components/Chat';
-import HomeUI from './components/HomeUI';
+import './index.css';
+import { logoutUser } from './utils/auth';
 
 function App() {
   const [view, setView] = useState(localStorage.getItem('app_view') || 'landing');
@@ -25,9 +25,9 @@ function App() {
     setView('chat'); 
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await logoutUser();
     setUser(null);
-    localStorage.removeItem('token');
     localStorage.removeItem('app_view');
     localStorage.removeItem('app_user');
     setView('landing');

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { saveAuthData } from '../utils/auth';
 
 const Auth = ({ type, onToggle, onSuccess }) => {
   const [isLogin, setIsLogin] = useState(type === 'login');
@@ -52,7 +53,7 @@ const Auth = ({ type, onToggle, onSuccess }) => {
 
       if (isLogin) {
         setSuccess('Login successful!');
-        localStorage.setItem('token', data.access_token);
+        saveAuthData(data);
         setTimeout(() => onSuccess(data), 1000);
       } else {
         setSuccess('Registration successful! Please check your email to verify.');

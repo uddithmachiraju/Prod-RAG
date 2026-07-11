@@ -1,15 +1,19 @@
 from datetime import datetime, timedelta, timezone
 
+from bson import ObjectId
 from fastapi import HTTPException, Request, status
 from fastapi.responses import HTMLResponse
+from jose import JWTError, jwt
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from passlib.context import CryptContext
 from src.config.logging import get_logger
 from src.config.settings import get_settings
-from src.core.auth import create_user_token
+from src.core.auth import create_refresh_token, create_user_token
 from src.core.email import generate_token, hash_token, send_verification_email
 from src.schemas.user_login import UserLoginRequest, UserLoginResponse
 from src.schemas.user_registration import (
+    RefreshRequest,
+    RefreshResponse,
     UserRegistrationRequest,
     UserRegistrationResponse,
 )
@@ -140,12 +144,129 @@ async def login_user(payload: UserLoginRequest, request: Request, db: AsyncIOMot
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive.")
 
     token = create_user_token(user["_id"])
+    refresh_token, refresh_token_jti = create_refresh_token(user["_id"])
+
+    await db.refresh_tokens.insert_one(
+        {
+            "jti": refresh_token_jti,
+            "user_id": str(user["_id"]),
+            "revoked": False,
+            "replaced_by": None,
+            "created_at": datetime.now(timezone.utc),
+            "expires_at": datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS),
+        }
+    )
+
     logger.info("user login successful", user_id=str(user["_id"]), email=payload.email, client_ip=client_ip)
 
     return UserLoginResponse(
         access_token=token,
+        refresh_token=refresh_token,
         token_type="bearer",
         expire_in_minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
         full_name=user.get("full_name", ""),
         username=user.get("username", "")
     )
+
+
+async def refresh_token(data: RefreshRequest, db: AsyncIOMotorDatabase) -> RefreshResponse:
+    """Refresh the user's access token using a valid refresh token."""
+
+    try:
+        payload = jwt.decode(data.refresh_token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type.")
+    
+    except JWTError as e:
+        logger.error("refresh_token_decoding_failed", error=str(e))
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from e
+    
+    jti = payload.get("jti")
+    user_id = payload.get("sub")
+
+    if not jti or not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload.")
+
+    token_doc = await db.refresh_tokens.find_one({"jti": jti})
+    if not token_doc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found.")
+    
+    if token_doc.get("revoked"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has been revoked.")
+    
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
+    
+    new_access_token = create_user_token(user_id)
+    new_refresh_token, new_refresh_token_jti = create_refresh_token(user_id)
+
+    await db.refresh_tokens.update_one(
+        {"jti": jti},
+        {
+            "$set": {
+                "revoked": True,
+                "replaced_by": new_refresh_token_jti,
+                "revoked_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+
+    await db.refresh_tokens.insert_one(
+        {
+            "jti": new_refresh_token_jti,
+            "user_id": user_id,
+            "revoked": False,
+            "replaced_by": None,
+            "created_at": datetime.now(timezone.utc),
+            "expires_at": datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS),
+        }
+    )
+
+    return RefreshResponse(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
+        token_type="bearer",
+    )
+
+
+async def logout_user(data: RefreshRequest, db: AsyncIOMotorDatabase) -> dict:
+    """Logout the user by invalidating their refresh token."""
+
+    try:
+        payload = jwt.decode(data.refresh_token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type.")
+    
+    except JWTError as e:
+        logger.error("logout_token_decoding_failed", error=str(e))
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from e
+    
+    jti = payload.get("jti")
+    user_id = payload.get("sub")
+
+    if not jti or not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload.")
+
+    token_doc = await db.refresh_tokens.find_one({"jti": jti})
+    if not token_doc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found.")
+    
+    if token_doc.get("revoked"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has already been revoked.")
+
+    await db.refresh_tokens.update_one(
+        {"jti": jti},
+        {
+            "$set": {
+                "revoked": True,
+                "revoked_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+
+    logger.info("user logged out", user_id=user_id)
+
+    return {"message": "User logged out successfully."}
