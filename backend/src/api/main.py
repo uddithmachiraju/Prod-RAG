@@ -5,6 +5,9 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from src.api.auth.router import router as auth_router
 from src.api.chats.router import router as chats_router
@@ -20,6 +23,7 @@ from src.core.container import (
     get_llm_service,
     get_sqs_producer,
 )
+from src.core.rate_limiter import limiter
 from src.db.mongo_db import check_db_health, close_db
 
 settings = get_settings()
@@ -72,6 +76,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+
+app.add_exception_handler(
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler, # type: ignore
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGIN,
@@ -80,6 +91,9 @@ app.add_middleware(
     allow_credentials=True,
 )
 
+app.add_middleware(
+    SlowAPIMiddleware,
+)
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):

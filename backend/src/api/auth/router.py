@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 import src.services.authentication.auth as auth_service
+from src.core.rate_limiter import limiter
 from src.db.mongo_db import get_db
 from src.schemas.user_login import UserLoginRequest, UserLoginResponse
 from src.schemas.user_registration import (
@@ -27,13 +28,12 @@ async def verify_email(token: str = Query(..., description="The verification tok
 
     return await auth_service.verify_email(token, db)
 
-
 @router.post("/login", response_model=UserLoginResponse)
-async def login_user(payload: UserLoginRequest, request: Request, db: AsyncIOMotorDatabase = Depends(get_db)):
+@limiter.limit("1/minute")
+async def login_user(request: Request, response: Response, payload: UserLoginRequest, db: AsyncIOMotorDatabase = Depends(get_db)):
     """Authenticate the user and return a JWT token if successful."""
 
     return await auth_service.login_user(payload, request, db)
-
 
 @router.post("/refresh", response_model=RefreshResponse)
 async def refresh_token(payload: RefreshRequest, db: AsyncIOMotorDatabase = Depends(get_db)):
