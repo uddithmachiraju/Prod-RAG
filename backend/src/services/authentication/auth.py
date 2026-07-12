@@ -23,6 +23,8 @@ settings = get_settings()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+dummy_hash = pwd_context.hash("dummy-password-for-timing-attack-prevention")
+
 
 def hash_password(password: str) -> str:
     """hash a plain text using bcrypt."""
@@ -128,7 +130,7 @@ async def login_user(payload: UserLoginRequest, request: Request, db: AsyncIOMot
 
     user = await db.users.find_one({"email": payload.email})
 
-    dummy_hash = pwd_context.hash("dummy-password-for-timing-attack-prevention")
+    # dummy_hash = pwd_context.hash("dummy-password-for-timing-attack-prevention")
     password_valid = verify_password(payload.password, user["hashed_password"]) if user else pwd_context.verify(payload.password, dummy_hash)
 
     if not user or not password_valid:

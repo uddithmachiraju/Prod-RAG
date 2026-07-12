@@ -29,7 +29,7 @@ async def verify_email(token: str = Query(..., description="The verification tok
     return await auth_service.verify_email(token, db)
 
 @router.post("/login", response_model=UserLoginResponse)
-@limiter.limit("1/minute")
+@limiter.limit("10000/minute")
 async def login_user(request: Request, response: Response, payload: UserLoginRequest, db: AsyncIOMotorDatabase = Depends(get_db)):
     """Authenticate the user and return a JWT token if successful."""
 

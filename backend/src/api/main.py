@@ -24,6 +24,7 @@ from src.core.container import (
     get_sqs_producer,
 )
 from src.core.rate_limiter import limiter
+from src.db.indexes import create_indexes
 from src.db.mongo_db import check_db_health, close_db
 
 settings = get_settings()
@@ -63,6 +64,8 @@ async def lifespan(app: FastAPI):
     if not llm.health_check():
         logger.error("llm model connection failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the LLM service. Check logs for details.")
+    
+    await create_indexes()
 
     yield
     await close_db()
@@ -124,4 +127,4 @@ app.include_router(chats_router, prefix="/chats", tags=["Chats"])
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=settings.HOST, port=settings.PORT)
+    uvicorn.run("src.api.main:app", host=settings.HOST, port=settings.PORT, workers=4)

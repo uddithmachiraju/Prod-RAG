@@ -28,3 +28,4 @@ pystache
 aws-requests-auth
 requests-aws4auth
 slowapi==0.1.10
+locust==2.45.0
