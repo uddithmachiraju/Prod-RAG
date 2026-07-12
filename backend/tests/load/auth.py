@@ -1,0 +1,51 @@
+from locust import HttpUser, between, task
+
+
+class AuthenticateUser(HttpUser):
+    """Load test for authentication endpoints."""
+
+    wait_time = between(1, 5)
+
+    def on_start(self):
+
+        self.access_token = None
+        self.refresh_token = None
+
+        self.login()
+        self.logout()
+
+
+    @task
+    def login(self):
+        """Simulate user login."""
+
+        payload = {
+            "email": "uddith89855@gmail.com",
+            "password": "Raju@2003"
+        }
+
+        with self.client.post("/auth/login", json=payload, catch_response=True) as response:
+            if response.status_code == 200:
+
+                data = response.json()
+
+                self.access_token = data.get("access_token")
+                self.refresh_token = data.get("refresh_token")
+
+                response.success()
+            else:
+                response.failure(f"Failed to login: {response.text}")
+
+    @task
+    def logout(self):
+        """Simulate user logout."""
+        
+        payload = {
+            "refresh_token": self.refresh_token
+        }
+
+        with self.client.post("/auth/logout", json=payload, catch_response=True) as response:
+            if response.status_code == 200:
+                response.success()
+            else:
+                response.failure(f"Failed to logout: {response.text}")
