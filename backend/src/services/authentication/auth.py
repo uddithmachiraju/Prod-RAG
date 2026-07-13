@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
@@ -131,7 +132,8 @@ async def login_user(payload: UserLoginRequest, request: Request, db: AsyncIOMot
     user = await db.users.find_one({"email": payload.email})
 
     # dummy_hash = pwd_context.hash("dummy-password-for-timing-attack-prevention")
-    password_valid = verify_password(payload.password, user["hashed_password"]) if user else pwd_context.verify(payload.password, dummy_hash)
+    # password_valid = verify_password(payload.password, user["hashed_password"]) if user else pwd_context.verify(payload.password, dummy_hash)
+    password_valid = await asyncio.to_thread(verify_password, payload.password, user["hashed_password"]) if user else await asyncio.to_thread(pwd_context.verify, payload.password, dummy_hash)
 
     if not user or not password_valid:
         logger.warning("user login failed", email=payload.email, client_ip=client_ip)
@@ -167,7 +169,7 @@ async def login_user(payload: UserLoginRequest, request: Request, db: AsyncIOMot
         token_type="bearer",
         expire_in_minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
         full_name=user.get("full_name", ""),
-        username=user.get("username", "")
+        username=user.get("username", ""),
     )
 
 
@@ -179,11 +181,11 @@ async def refresh_token(data: RefreshRequest, db: AsyncIOMotorDatabase) -> Refre
 
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type.")
-    
+
     except JWTError as e:
         logger.error("refresh_token_decoding_failed", error=str(e))
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from e
-    
+
     jti = payload.get("jti")
     user_id = payload.get("sub")
 
@@ -193,14 +195,14 @@ async def refresh_token(data: RefreshRequest, db: AsyncIOMotorDatabase) -> Refre
     token_doc = await db.refresh_tokens.find_one({"jti": jti})
     if not token_doc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found.")
-    
+
     if token_doc.get("revoked"):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has been revoked.")
-    
+
     user = await db.users.find_one({"_id": ObjectId(user_id)})
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
-    
+
     new_access_token = create_user_token(user_id)
     new_refresh_token, new_refresh_token_jti = create_refresh_token(user_id)
 
@@ -241,26 +243,19 @@ async def logout_user(data: RefreshRequest, db: AsyncIOMotorDatabase) -> dict:
 
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type.")
-    
+
     except JWTError as e:
         logger.error("logout_token_decoding_failed", error=str(e))
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from e
-    
+
     jti = payload.get("jti")
     user_id = payload.get("sub")
 
     if not jti or not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload.")
 
-    token_doc = await db.refresh_tokens.find_one({"jti": jti})
-    if not token_doc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found.")
-    
-    if token_doc.get("revoked"):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has already been revoked.")
-
-    await db.refresh_tokens.update_one(
-        {"jti": jti},
+    updated_doc = await db.refresh_tokens.find_one_and_update(
+        {"jti": jti, "revoked": False},
         {
             "$set": {
                 "revoked": True,
@@ -268,6 +263,15 @@ async def logout_user(data: RefreshRequest, db: AsyncIOMotorDatabase) -> dict:
             }
         },
     )
+
+    if updated_doc is None:
+        existing = await db.refresh_tokens.find_one({"jti": jti})
+        if not existing:
+            logger.warning("logout_failed_refresh_token_not_found", jti=jti, user_id=user_id)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found.")
+
+        logger.warning("logout_failed_already_revoked", jti=jti, user_id=user_id)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has already been revoked.")
 
     logger.info("user logged out", user_id=user_id)
 

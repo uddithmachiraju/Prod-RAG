@@ -1,10 +1,8 @@
-from locust import HttpUser, between, task
+from locust import HttpUser, SequentialTaskSet, between, task
 
 
-class AuthenticateUser(HttpUser):
+class AuthFlow(SequentialTaskSet):
     """Load test for authentication endpoints."""
-
-    wait_time = between(1, 5)
 
     def on_start(self):
 
@@ -14,15 +12,11 @@ class AuthenticateUser(HttpUser):
         self.login()
         self.logout()
 
-
     @task
     def login(self):
         """Simulate user login."""
 
-        payload = {
-            "email": "uddith89855@gmail.com",
-            "password": "Raju@2003"
-        }
+        payload = {"email": "uddith89855@gmail.com", "password": "Raju@2003"}
 
         with self.client.post("/auth/login", json=payload, catch_response=True) as response:
             if response.status_code == 200:
@@ -39,13 +33,18 @@ class AuthenticateUser(HttpUser):
     @task
     def logout(self):
         """Simulate user logout."""
-        
-        payload = {
-            "refresh_token": self.refresh_token
-        }
+
+        payload = {"refresh_token": self.refresh_token}
 
         with self.client.post("/auth/logout", json=payload, catch_response=True) as response:
             if response.status_code == 200:
                 response.success()
             else:
                 response.failure(f"Failed to logout: {response.text}")
+
+
+class AuthenticationUser(HttpUser):
+    """Locust user for authentication load testing."""
+
+    tasks = [AuthFlow]
+    wait_time = between(1, 5)
