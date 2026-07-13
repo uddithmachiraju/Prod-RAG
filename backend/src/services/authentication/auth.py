@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from bson import ObjectId
 from fastapi import HTTPException, Request, status
@@ -192,15 +193,31 @@ async def refresh_token(data: RefreshRequest, db: AsyncIOMotorDatabase) -> Refre
     if not jti or not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload.")
 
-    token_doc = await db.refresh_tokens.find_one({"jti": jti})
-    if not token_doc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found.")
+    new_refresh_token_jti_placeholder = str(uuid4())
 
-    if token_doc.get("revoked"):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has been revoked.")
+    token_doc = await db.refresh_tokens.find_one_and_update(
+        {"jti": jti, "revoked": False},
+        {
+            "$set": {
+                "revoked": True,
+                "replaced_by": new_refresh_token_jti_placeholder,
+                "revoked_at": datetime.now(timezone.utc),
+            },
+        },
+    )
+
+    if token_doc is None:
+        existing = await db.refresh_tokens.find_one({"jti": jti})
+        if not existing:
+            logger.warning("refresh_token_not_found", jti=jti, user_id=user_id)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found.")
+
+        logger.warning("refresh_token_already_revoked", jti=jti, user_id=user_id)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has already been revoked.")
 
     user = await db.users.find_one({"_id": ObjectId(user_id)})
     if not user:
+        logger.warning("refresh_token_user_not_found", user_id=user_id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
 
     new_access_token = create_user_token(user_id)
@@ -210,9 +227,7 @@ async def refresh_token(data: RefreshRequest, db: AsyncIOMotorDatabase) -> Refre
         {"jti": jti},
         {
             "$set": {
-                "revoked": True,
                 "replaced_by": new_refresh_token_jti,
-                "revoked_at": datetime.now(timezone.utc),
             }
         },
     )

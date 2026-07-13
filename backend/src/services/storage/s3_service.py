@@ -25,6 +25,7 @@ def generate_file_key(user_id: str, filename: str, document_id: str) -> str:
 
     return f"{user_id}/{document_id}/{safe_filename}"
 
+
 async def download_file_from_s3(file_key: str) -> bytes:
     """Download a file from S3 from its file key."""
 
@@ -33,9 +34,9 @@ async def download_file_from_s3(file_key: str) -> bytes:
         response = await loop.run_in_executor(
             None,
             lambda: s3_client.get_object(
-                Bucket=settings.AWS_S3_BUCKET_NAME, 
+                Bucket=settings.AWS_S3_BUCKET_NAME,
                 Key=file_key,
-            )
+            ),
         )
         file_bytes = response["Body"].read()
         return file_bytes
@@ -50,7 +51,18 @@ async def generate_presigned_url(user_id: str, filename: str, document_id: str, 
     file_key = generate_file_key(user_id=user_id, filename=filename, document_id=document_id)
 
     try:
-        presigned_url = s3_client.generate_presigned_url(
+        # presigned_url = s3_client.generate_presigned_url(
+        #     "put_object",
+        #     Params={
+        #         "Bucket": settings.AWS_S3_BUCKET_NAME,
+        #         "Key": file_key,
+        #         "ContentType": content_type,
+        #     },
+        #     ExpiresIn=settings.AWS_S3_FILE_EXPIRE_SECONDS,
+        # )
+
+        presigned_url = await asyncio.to_thread(
+            s3_client.generate_presigned_url,
             "put_object",
             Params={
                 "Bucket": settings.AWS_S3_BUCKET_NAME,
@@ -59,6 +71,7 @@ async def generate_presigned_url(user_id: str, filename: str, document_id: str, 
             },
             ExpiresIn=settings.AWS_S3_FILE_EXPIRE_SECONDS,
         )
+
         logger.info("generated presigned url", user_id=user_id, document_id=document_id, filename=filename)
         return presigned_url, file_key
     except Exception as e:
