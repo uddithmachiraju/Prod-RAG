@@ -4,7 +4,9 @@ from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.schemas.retrieval import RetrievalRequest, RetrievalResponse
 from src.services.chroma.db import ChromaDB
-from src.services.embeddings.embeds import Embeddings
+
+# from src.services.embeddings.embeds import Embeddings
+from src.services.embeddings.local_embeds import JinaEmbeddings
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -13,7 +15,7 @@ settings = get_settings()
 class RetrivalService:
     """Service for retreiving data from the database."""
 
-    def __init__(self, vector_store: ChromaDB, embeddings: Embeddings) -> None:
+    def __init__(self, vector_store: ChromaDB, embeddings: JinaEmbeddings) -> None:
         self.vector_store = vector_store
         self.embeddings = embeddings
 
@@ -21,7 +23,7 @@ class RetrivalService:
         """Search for relevant chunks based on the query and return the results."""
 
         try:
-            query_embedding = await self.embeddings.get_embedding(payload.query)
+            query_embedding = await self.embeddings.get_embeddings(payload.query)
 
             result = await self.vector_store.query(document_id=payload.document_id, query_embedd=query_embedding, top_k=payload.top_k)
 

@@ -10,11 +10,14 @@ from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.schemas.document import DocumentChunk
 from src.services.chroma.db import chroma_client
-from src.services.embeddings.embeds import Embeddings
+
+# from src.services.embeddings.embeds import Embeddings
+from src.services.embeddings.local_embeds import JinaEmbeddings
 
 logger = get_logger(__name__)
 settings = get_settings()
-embeddings = Embeddings()
+# embeddings = Embeddings()
+embeddings = JinaEmbeddings()
 
 _NOISE_PATTERNS = [
     r"^page\s+\d+\s+of\s+\d+$",
@@ -250,7 +253,7 @@ class SemanticSplitter:
             structured_chunks: list[DocumentChunk] = []
 
             for index, chunk_text in enumerate(chunks):
-                embedding = await embeddings.get_embedding(chunk_text)
+                embedding = await embeddings.get_embeddings(chunk_text)
                 vector_id = f"{document_id}.chunk.{index}"
 
                 self.collection.add(

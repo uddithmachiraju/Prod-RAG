@@ -33,7 +33,7 @@ class Embeddings:
         self.model_id = settings.AWS_BEDROCK_EMBED_MODEL_ID
 
         self.session = requests.Session()
-        self._semaphore = asyncio.Semaphore(5)
+        self._semaphore = asyncio.Semaphore(10)
 
     async def get_embedding(self, text: str) -> list[float]:
         """Get the embedding for a given text."""

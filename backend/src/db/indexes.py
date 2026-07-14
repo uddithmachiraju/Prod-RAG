@@ -11,5 +11,11 @@ async def create_indexes():
     await db.users.create_index(
         [("email", ASCENDING)],
         unique=True,
-        name="idx_email"
+        name="idx_email",
+    )
+
+    await db.refresh_tokens.create_index(
+        [("jti", ASCENDING)],
+        unique=True,
+        name="idx_jti",
     )

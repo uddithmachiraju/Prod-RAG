@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field
 
 from src.services.chroma.db import ChromaDB
-from src.services.embeddings.embeds import Embeddings
+
+# from src.services.embeddings.embeds import Embeddings
+from src.services.embeddings.local_embeds import JinaEmbeddings
 from src.services.llm.llm_model import LLMModel
 from src.services.parsers.base_parser import BaseParser
 from src.services.parsers.pdf_parser import PDFParser
@@ -13,7 +15,8 @@ from src.services.sqs.producer import SQSProducer
 class AppContainer:
     """A Single container for all stateful components."""
 
-    embeddings: Embeddings = field(default=Embeddings())
+    # embeddings: Embeddings = field(default=Embeddings())
+    embeddings: JinaEmbeddings = field(default=JinaEmbeddings())
     parser: BaseParser = field(default=PDFParser())
     sqs_producer: SQSProducer = field(default=SQSProducer())
     chorma_db: ChromaDB = field(default=ChromaDB())
@@ -23,7 +26,8 @@ class AppContainer:
     def initialize(self):
         """Initialization of components."""
 
-        self.embedding_service = Embeddings()
+        # self.embedding_service = Embeddings()
+        self.embedding_service = JinaEmbeddings()
         self.parser_service = PDFParser()
         self.sqs_producer = SQSProducer()
         self.chorma_db = ChromaDB()
@@ -35,7 +39,7 @@ container = AppContainer()
 container.initialize()
 
 
-def get_embedddings() -> Embeddings:
+def get_embedddings() -> JinaEmbeddings:
     """returns the embeddings service."""
 
     return container.embedding_service
