@@ -1,5 +1,4 @@
 import asyncio
-import signal
 from typing import Any, Dict
 
 from src.config.logging import get_logger
@@ -43,7 +42,11 @@ class IngestionWorker(Consumer):
             doc = document.model_dump()
             doc["_id"] = document_id
 
-            await db.documents.insert_one(doc)
+            await db.documents.replace_one(
+                {"_id": document_id},
+                doc,
+                upsert=True,
+            )
             logger.info("Document ingested successfully", user_id=user_id, file_key=file_key, document_id=document.document_id)
         except Exception as e:
             logger.error("Error ingesting document", user_id=user_id, file_key=file_key, document_id=document_id, error=str(e))

@@ -1,12 +1,11 @@
 from typing import List
 
+# from src.services.embeddings.embeds import Embeddings
+from backend.src.services.embeddings.jina_embeds import JinaEmbeddings
 from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.schemas.retrieval import RetrievalRequest, RetrievalResponse
 from src.services.chroma.db import ChromaDB
-
-# from src.services.embeddings.embeds import Embeddings
-from src.services.embeddings.local_embeds import JinaEmbeddings
 
 logger = get_logger(__name__)
 settings = get_settings()
