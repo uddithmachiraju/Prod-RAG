@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
 
-# from src.services.embeddings.embeds import Embeddings
-from backend.src.services.embeddings.jina_embeds import JinaEmbeddings
 from src.services.chroma.db import ChromaDB
+
+# from src.services.embeddings.embeds import Embeddings
+from src.services.embeddings.jina_embeds import JinaEmbeddings
 from src.services.llm.llm_model import LLMModel
 from src.services.parsers.base_parser import BaseParser
 from src.services.parsers.pdf_parser import PDFParser

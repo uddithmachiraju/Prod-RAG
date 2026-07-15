@@ -6,12 +6,13 @@ from typing import Any
 
 import numpy as np
 
-# from src.services.embeddings.embeds import Embeddings
-from backend.src.services.embeddings.jina_embeds import JinaEmbeddings
 from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.schemas.document import DocumentChunk
 from src.services.chroma.db import chroma_client
+
+# from src.services.embeddings.embeds import Embeddings
+from src.services.embeddings.jina_embeds import JinaEmbeddings
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -287,3 +288,225 @@ class SemanticSplitter:
         except Exception as e:
             logger.error(f"Error during parsing: {e}")
             return []
+
+
+# import asyncio
+# import re
+# import time
+# import uuid
+# from datetime import datetime, timezone
+
+# from liteparse import LiteParse
+
+# from src.config.logging import get_logger
+# from src.config.settings import get_settings
+# from src.schemas.document import DocumentChunk
+# from src.services.chroma.db import chroma_client
+# from src.services.embeddings.jina_embeds import JinaEmbeddings
+
+# logger = get_logger(__name__)
+# settings = get_settings()
+# embeddings = JinaEmbeddings()
+
+# # output_format="markdown" gives layout-aware text (headings/tables/lists
+# # reconstructed) which tends to produce cleaner paragraph boundaries than
+# # raw extracted text for _split_paragraphs below.
+# _liteparse = LiteParse(output_format="markdown")
+
+# _WHITESPACE_RE = re.compile(r"[ \t]+")
+# _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f\u200b\ufeff]")
+# _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+# MAX_CHUNK_CHARS = 1200
+# MIN_CHUNK_CHARS = 100  # below this, a chunk gets merged into a neighbor
+
+
+# class SemanticSplitter:
+#     """
+#     Generic, format-agnostic splitter for any document type (resumes,
+#     contracts, articles, reports, transcripts, plain text, etc.) +
+#     parallel embedding + single batched vector-store write. No document-type
+#     specific structural heuristics (section/role/project detection) — those
+#     cost CPU cycles for marginal chunk-quality gain, don't generalize past
+#     one document type, and are not needed for retrieval-quality embeddings.
+#     """
+
+#     def __init__(self) -> None:
+#         self.collection = chroma_client.get_or_create_collection(
+#             name=settings.CHROMA_DB_COLLECTION,
+#             embedding_function=None,
+#             metadata={"hnsw:space": "cosine"},
+#         )
+
+#     @staticmethod
+#     def _clean_text(text: str) -> str:
+#         if not text:
+#             return ""
+#         text = text.replace("\r", "").replace("\u00a0", " ")
+#         text = _CONTROL_CHARS_RE.sub("", text)
+#         text = _WHITESPACE_RE.sub(" ", text).strip()
+#         return text
+
+#     @staticmethod
+#     def _split_paragraphs(text: str) -> list[str]:
+#         """
+#         Try blank-line-delimited paragraphs first (articles, contracts,
+#         reports). If that collapses to a single block (single-newline
+#         formats, or text with no line breaks at all — common in OCR output
+#         or plain-text dumps), fall back to single-newline splitting.
+#         """
+#         blocks = [p for p in re.split(r"\n\s*\n", text) if p.strip()]
+#         if len(blocks) > 1:
+#             return blocks
+
+#         lines = [ln for ln in text.split("\n") if ln.strip()]
+#         if len(lines) > 1:
+#             return lines
+
+#         return [text]
+
+#     def _split_oversized(self, paragraph: str) -> list[str]:
+#         """
+#         A paragraph can itself exceed MAX_CHUNK_CHARS (long-form prose,
+#         legal text, no bullet/line structure). Split on sentence boundaries
+#         first; if a single "sentence" is still too long (e.g. no
+#         punctuation at all), hard-split on character count as a last resort.
+#         """
+#         if len(paragraph) <= MAX_CHUNK_CHARS:
+#             return [paragraph]
+
+#         sentences = [s for s in _SENTENCE_SPLIT_RE.split(paragraph) if s]
+#         pieces: list[str] = []
+#         current = ""
+#         for sentence in sentences:
+#             if current and len(current) + len(sentence) + 1 > MAX_CHUNK_CHARS:
+#                 pieces.append(current)
+#                 current = sentence
+#             else:
+#                 current = f"{current} {sentence}".strip() if current else sentence
+#         if current:
+#             pieces.append(current)
+
+#         final: list[str] = []
+#         for piece in pieces:
+#             if len(piece) <= MAX_CHUNK_CHARS:
+#                 final.append(piece)
+#             else:
+#                 final.extend(piece[i : i + MAX_CHUNK_CHARS] for i in range(0, len(piece), MAX_CHUNK_CHARS))
+#         return final
+
+#     def _chunk_text(self, text: str) -> list[str]:
+#         """
+#         Split into paragraphs (any layout), break up any paragraph that's
+#         too large on its own, then greedily pack paragraphs into chunks up
+#         to MAX_CHUNK_CHARS. Tiny leftover chunks get merged into the
+#         previous chunk instead of being emitted alone.
+#         """
+#         raw_paragraphs = self._split_paragraphs(text)
+#         paragraphs: list[str] = []
+#         for raw in raw_paragraphs:
+#             cleaned = self._clean_text(raw)
+#             if cleaned:
+#                 paragraphs.extend(self._split_oversized(cleaned))
+
+#         if not paragraphs:
+#             return []
+
+#         chunks: list[str] = []
+#         current: list[str] = []
+#         current_len = 0
+
+#         for para in paragraphs:
+#             para_len = len(para)
+
+#             if current and current_len + para_len + 1 > MAX_CHUNK_CHARS:
+#                 chunks.append("\n".join(current))
+#                 current = []
+#                 current_len = 0
+
+#             current.append(para)
+#             current_len += para_len + 1
+
+#         if current:
+#             chunks.append("\n".join(current))
+
+#         # merge any undersized trailing/orphan chunk into its neighbor
+#         merged: list[str] = []
+#         for chunk in chunks:
+#             if merged and len(chunk) < MIN_CHUNK_CHARS:
+#                 merged[-1] = merged[-1] + "\n" + chunk
+#             else:
+#                 merged.append(chunk)
+
+#         return merged
+
+#     async def parse_file(self, file_path: str, document_id: str) -> list[DocumentChunk]:
+#         """
+#         File-based entry point: extract text via LiteParse, then run the
+#         exact same chunk/embed/store pipeline as parse(). Use this instead
+#         of parse() when you have a file on disk (PDF, DOCX, XLSX, PPTX,
+#         image) rather than already-extracted text.
+
+#         LiteParse's parse() call is not async — run it in a thread so it
+#         doesn't block the event loop while other requests are in flight.
+#         """
+#         loop = asyncio.get_running_loop()
+#         result = await loop.run_in_executor(None, _liteparse.parse, file_path)
+#         return await self.parse(result.text, document_id)
+
+#     async def parse(self, text: str, document_id: str) -> list[DocumentChunk]:
+#         start = time.time()
+
+#         try:
+#             if not text or not text.strip():
+#                 raise ValueError("Input text is empty or blank.")
+
+#             chunks = self._chunk_text(text)
+#             if not chunks:
+#                 raise ValueError("No chunks produced from text.")
+
+#             # Fire all embedding requests concurrently instead of awaiting
+#             # them one at a time — this is the dominant latency cost.
+#             chunk_embeddings = await asyncio.gather(*(embeddings.get_embeddings(chunk) for chunk in chunks))
+
+#             now = datetime.now(timezone.utc)
+#             ids: list[str] = []
+#             metadatas: list[dict] = []
+#             structured_chunks: list[DocumentChunk] = []
+
+#             for index, (chunk_text, embedding) in enumerate(zip(chunks, chunk_embeddings)):
+#                 vector_id = f"{document_id}.chunk.{index}"
+#                 ids.append(vector_id)
+#                 metadatas.append({"document_id": document_id, "chunk_index": index})
+#                 structured_chunks.append(
+#                     DocumentChunk(
+#                         chunk_id=str(uuid.uuid4()),
+#                         document_id=document_id,
+#                         chunk_index=index,
+#                         content=chunk_text,
+#                         created_at=now,
+#                         vector_id=vector_id,
+#                         embedding_model=settings.AWS_BEDROCK_EMBED_MODEL_ID,
+#                     )
+#                 )
+
+#             # single batched write instead of one add() call per chunk
+#             self.collection.add(
+#                 ids=ids,
+#                 documents=chunks,
+#                 embeddings=chunk_embeddings,  # type: ignore
+#                 metadatas=metadatas,  # type: ignore
+#             )
+
+#             logger.info(
+#                 "semantic_chunking_complete",
+#                 word_count=len(text.split()),
+#                 chunk_count=len(chunks),
+#                 processing_time_ms=round((time.time() - start) * 1000, 2),
+#             )
+
+#             return structured_chunks
+
+#         except Exception as e:
+#             logger.error(f"Error during parsing: {e}")
+#             return []

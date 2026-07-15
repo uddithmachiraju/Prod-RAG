@@ -1,5 +1,7 @@
+import asyncio
+import threading
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, AsyncGenerator, Dict, List
 
 import boto3  # type: ignore
 from pydantic import ValidationError
@@ -199,6 +201,35 @@ class LLMModel:
         except Exception as e:
             logger.error(f"Error invoking Bedrock LLM Model stream: {e}")
             raise
+
+    async def async_stream(self, query: str, retrievals: List[RetrievalResponse], template: str | None = None) -> AsyncGenerator[Dict[str, Any], None]:
+        """Async wrapper for llm to run calls parallely."""
+
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        SENTINEL = object()
+
+        def producer():
+
+            try:
+                kwargs = {"template": template} if template else {}
+                for chunk in self.stream(query, retrievals, **kwargs):
+                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
+            except Exception as e:  # noqa: BLE001
+                loop.call_soon_threadsafe(queue.put_nowait, e)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+
+        threading.Thread(target=producer, daemon=True).start()
+
+        while True:
+            item = await queue.get()
+            if item is SENTINEL:
+                break
+            if isinstance(item, Exception):
+                logger.error(f"Error in Bedrock stream thread: {item}")
+                raise item
+            yield item
 
     def health_check(self) -> bool:
         try:

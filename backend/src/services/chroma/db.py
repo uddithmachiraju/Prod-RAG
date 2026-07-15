@@ -1,7 +1,10 @@
+import asyncio
+import time
 from typing import Any, List
 
 import chromadb
 from chromadb.api.types import GetResult
+from fastapi.concurrency import run_in_threadpool
 
 from src.config.logging import get_logger
 from src.config.settings import get_settings
@@ -80,11 +83,36 @@ class ChromaDB:
             logger.error("Failed to fetch document chunks", document_id=document_id, error=str(e))
             raise
 
-    def health_check(self) -> bool:
+    # async def get_document_data(self, user_id: str, document_id: str, include_embeddings: bool = False, limit: int = 500, offset: int = 0, timeoust_sec: float = 15):
+    #     """Get a page of documents belongs to the user."""
+
+    #     if not user_id:
+    #         raise
+
+    #     if limit <= 0 and limit > 1000:
+    #         raise
+
+    #     if offset < 0:
+    #         raise
+
+    #     include = ["documents", "metadatas"]
+    #     if include_embeddings:
+    #         include.append("embeddings")
+
+    #     start = time.perf_counter()
+    #     try:
+    #         raw = await asyncio.wait_for(
+    #             run_in_threadpool()
+    #         )
+
+    async def health_check(self, timeout_sec: float = 3.0) -> bool:
         """Health check for the ChromaDB client."""
 
         try:
-            self.client.heartbeat()
+            await asyncio.wait_for(
+                run_in_threadpool(self.client.heartbeat),
+                timeout=timeout_sec,
+            )
             logger.info("ChromaDB health check passed.")
             return True
         except Exception as e:

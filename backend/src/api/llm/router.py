@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -50,10 +50,11 @@ async def query_retrieval(request: RetrievalRequest, user: Dict = Depends(get_cu
 
 
 @router.post("/query/stream", status_code=200, response_class=StreamingResponse)
-async def query_retrieval_stream(request: RetrievalRequest, user: Dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+async def query_retrieval_stream(request: RetrievalRequest, background_tasks: BackgroundTasks, user: Dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     """Endpoint to handle retrieval queries with streaming response."""
 
-    await add_message_to_chat(
+    background_tasks.add_task(
+        add_message_to_chat,
         chat_id=request.chat_id,
         payload={
             "user_id": str(user["_id"]),
@@ -62,15 +63,18 @@ async def query_retrieval_stream(request: RetrievalRequest, user: Dict = Depends
         },
         db=db,
     )
-    retrieved_chunks: List[RetrievalResponse] = await retrieval_service.search_query(request)
 
     async def stream_response():
         assistant_response = ""
-        usage, stop_reason = 0, "Unknown"
+
+        usage = {"inputTokens": 0, "outputTokens": 0}
+        stop_reason = "Unknown"
 
         try:
 
-            for chunk in llm_service.stream(query=request.query, retrievals=retrieved_chunks):
+            retrieved_chunks: List[RetrievalResponse] = await retrieval_service.search_query(request)  # type: ignore
+
+            async for chunk in llm_service.async_stream(query=request.query, retrievals=retrieved_chunks):
                 if chunk["type"] == "text":
                     assistant_response += chunk["content"]
                     yield chunk["content"]
@@ -84,7 +88,8 @@ async def query_retrieval_stream(request: RetrievalRequest, user: Dict = Depends
                     stop_reason = chunk["reason"]
 
         finally:
-            await add_message_to_chat(
+            background_tasks.add_task(
+                add_message_to_chat,
                 chat_id=request.chat_id,
                 payload={
                     "user_id": str(user["_id"]),
