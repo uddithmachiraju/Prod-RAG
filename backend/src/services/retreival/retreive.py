@@ -6,7 +6,8 @@ from src.schemas.retrieval import RetrievalRequest, RetrievalResponse
 from src.services.chroma.db import ChromaDB
 
 # from src.services.embeddings.embeds import Embeddings
-from src.services.embeddings.jina_embeds import JinaEmbeddings
+# from src.services.embeddings.jina_embeds import JinaEmbeddings
+from src.services.embeddings.openai_embeds import OpenAIEmbeddings
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -15,7 +16,7 @@ settings = get_settings()
 class RetrivalService:
     """Service for retreiving data from the database."""
 
-    def __init__(self, vector_store: ChromaDB, embeddings: JinaEmbeddings) -> None:
+    def __init__(self, vector_store: ChromaDB, embeddings: OpenAIEmbeddings) -> None:
         self.vector_store = vector_store
         self.embeddings = embeddings
 

@@ -3,7 +3,8 @@ from dataclasses import dataclass, field
 from src.services.chroma.db import ChromaDB
 
 # from src.services.embeddings.embeds import Embeddings
-from src.services.embeddings.jina_embeds import JinaEmbeddings
+# from src.services.embeddings.jina_embeds import JinaEmbeddings
+from src.services.embeddings.openai_embeds import OpenAIEmbeddings
 
 # from src.services.llm.llm_model import LLMModel
 from src.services.llm.openai_model import LLMModel
@@ -18,7 +19,8 @@ class AppContainer:
     """A Single container for all stateful components."""
 
     # embeddings: Embeddings = field(default=Embeddings())
-    embeddings: JinaEmbeddings = field(default=JinaEmbeddings())
+    # embeddings: JinaEmbeddings = field(default=JinaEmbeddings())
+    embeddings: OpenAIEmbeddings = field(default=OpenAIEmbeddings())
     parser: BaseParser = field(default=PDFParser())
     sqs_producer: SQSProducer = field(default=SQSProducer())
     chorma_db: ChromaDB = field(default=ChromaDB())
@@ -29,7 +31,8 @@ class AppContainer:
         """Initialization of components."""
 
         # self.embedding_service = Embeddings()
-        self.embedding_service = JinaEmbeddings()
+        # self.embedding_service = JinaEmbeddings()
+        self.embedding_service = OpenAIEmbeddings()
         self.parser_service = PDFParser()
         self.sqs_producer = SQSProducer()
         self.chorma_db = ChromaDB()
@@ -41,7 +44,7 @@ container = AppContainer()
 container.initialize()
 
 
-def get_embedddings() -> JinaEmbeddings:
+def get_embedddings() -> OpenAIEmbeddings:
     """returns the embeddings service."""
 
     return container.embedding_service

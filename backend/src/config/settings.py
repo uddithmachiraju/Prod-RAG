@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     # OpenAI settings
     OPENAI_API_KEY: str = Field(default=..., description="OpenAI API key")
     OPENAI_MODEL: str = Field(default="gpt-5-nano", description="Openai Model to use")
+    OPENAI_EMBED_MODEL_ID: str = Field(default=..., description="OpenAI Embedding model ID")
 
     # AWS Settings
     AWS_ACCESS_KEY_ID: str = Field(default=..., description="AWS access key ID for S3")
