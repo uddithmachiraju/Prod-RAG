@@ -1,9 +1,11 @@
 import asyncio
 import threading
+import time
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator, Callable, Dict, List
 
 import boto3  # type: ignore
+from botocore.exceptions import ClientError  # type: ignore
 from pydantic import ValidationError
 from pystache import render  # type: ignore
 
@@ -60,6 +62,8 @@ class LLMModel:
 
         self.model_id = settings.AWS_BEDROCK_LLM_MODEL_ID
 
+        self._semaphore = asyncio.Semaphore(1)
+
     def _map_context(self, user_question: str, retrievals: List[RetrievalResponse]) -> Dict[str, Any]:
         """Map RetrievalResponse list to mustache template variables."""
         return {
@@ -104,59 +108,108 @@ class LLMModel:
                 gaps=f"Response validation failed: {e}",
             )
 
+    @staticmethod
+    def _is_throtling_error(e: ClientError) -> bool:
+        return e.response.get("Error", {}).get("Code") == "ThrottlingException"
+
+    async def _call_with_retry(self, func: Callable, **kwargs) -> Any:
+        """Retrying on Bedrock Throtling with exponential backoff."""
+
+        last_exc: Exception | None = None
+
+        for attempt in range(5):
+            try:
+                return await asyncio.to_thread(func, **kwargs)
+            except ClientError as e:
+                last_exc = e
+                if self._is_throtling_error(e):
+                    backoff = 1 * (2**attempt)
+                    logger.warning("Bedrock throttled", attempt=attempt, max_retries=5, retry=backoff)
+                    await asyncio.sleep(backoff)
+                    continue
+                raise
+
+        logger.error("Bedrock retres exceeded", last_exception=last_exc)
+        raise RuntimeError("Retries Exceeded") from last_exc
+
+    def _call_with_retry_sync(self, func: Callable, **kwargs) -> Any:
+        """Blocking-thread-safe variant of _call_with_retry for use inside sync generators (streaming)."""
+
+        last_exc: Exception | None = None
+
+        for attempt in range(5):
+            try:
+                return func(**kwargs)
+            except ClientError as e:
+                last_exc = e
+                if self._is_throtling_error(e):
+                    backoff = 1 * (2**attempt)
+                    logger.warning("Bedrock throttled", attempt=attempt, max_retries=5, retry=backoff)
+                    time.sleep(backoff)
+                    continue
+                raise
+
+        logger.error("Bedrock retres exceeded", last_exception=last_exc)
+        raise RuntimeError("Retries exceeded") from last_exc
+
     async def generate(self, query: str, retrievals: List[RetrievalResponse]) -> LLMResponse:
         """Generate a structured response from Bedrock using tool use."""
 
         prompt = self.render_prompt_template(user_question=query, retrievals=retrievals)
 
-        logger.info(f"Invoking Bedrock LLM with prompt: {prompt}")
+        logger.info("waiting for bedrock slot...")
 
-        try:
-            response = self.client.converse(
-                modelId=self.model_id,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [{"text": prompt}],
-                    }
-                ],
-                inferenceConfig={
-                    "maxTokens": 5000,
-                    "temperature": 0.2,
-                    "topP": 0.9,
-                },
-                toolConfig=self.TOOL_CONFIG,
-            )
+        async with self._semaphore:
+            logger.info("Bedrock slot acquired")
 
-            logger.debug(f"Raw Bedrock response: {response!r}")
+            try:
+                response = await self._call_with_retry(
+                    self.client.converse,
+                    modelId=self.model_id,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [{"text": prompt}],
+                        }
+                    ],
+                    inferenceConfig={
+                        "maxTokens": 5000,
+                        "temperature": 0.2,
+                        "topP": 0.9,
+                    },
+                    toolConfig=self.TOOL_CONFIG,
+                )
 
-            # Extract token usage and stop reason from response metadata
-            usage = response.get("usage", {})
-            stop_reason = response.get("stopReason", "Unknown")
+                logger.debug("Raw bedrock response", response=response)
 
-            tool_input = self._extract_tool_input(response)
-            structured_response = self._parse_structured_response(tool_input)
+                usage = response.get("usage", {})
+                stop_reason = response.get("stopReason", "Unknown")
 
-            return LLMResponse(
-                answer=structured_response,
-                model_id=self.model_id,
-                input_tokens=usage.get("inputTokens"),
-                output_tokens=usage.get("outputTokens"),
-                stop_reason=stop_reason,
-            )
+                tool_input = self._extract_tool_input(response)
+                structured_response = self._parse_structured_response(tool_input)
 
-        except Exception as e:
-            logger.error(f"Error invoking Bedrock LLM Model: {e}")
-            raise
+                return LLMResponse(
+                    answer=structured_response,
+                    model_id=self.model_id,
+                    input_tokens=usage.get("inputTokens"),
+                    output_tokens=usage.get("outputTokens"),
+                    stop_reason=stop_reason,
+                )
+
+            except Exception as e:
+                logger.error(f"Error invoking Bedrock LLM Model: {e}")
+                raise
+            finally:
+                logger.info("Bedrock slot released")
 
     def stream(self, query: str, retrievals: List[RetrievalResponse], template: str = llm_stream_prompt) -> Any:
         """Generate a streaming response from Bedrock using tool use."""
 
         prompt = self.render_prompt_template(user_question=query, retrievals=retrievals, template=template)
-        logger.info(f"Invoking Bedrock LLM with prompt: {prompt}")
 
         try:
-            response = self.client.converse_stream(
+            response = self._call_with_retry_sync(
+                self.client.converse_stream,
                 modelId=self.model_id,
                 messages=[
                     {
@@ -205,31 +258,38 @@ class LLMModel:
     async def async_stream(self, query: str, retrievals: List[RetrievalResponse], template: str | None = None) -> AsyncGenerator[Dict[str, Any], None]:
         """Async wrapper for llm to run calls parallely."""
 
-        loop = asyncio.get_running_loop()
-        queue: asyncio.Queue = asyncio.Queue()
-        SENTINEL = object()
+        logger.info("Waiting for Bedrock slot...")
+        async with self._semaphore:
+            logger.info("Bedrock slot acquired.")
 
-        def producer():
+            loop = asyncio.get_running_loop()
+            queue: asyncio.Queue = asyncio.Queue()
+            SENTINEL = object()
+
+            def producer():
+
+                try:
+                    kwargs = {"template": template} if template else {}
+                    for chunk in self.stream(query, retrievals, **kwargs):
+                        loop.call_soon_threadsafe(queue.put_nowait, chunk)
+                except Exception as e:  # noqa: BLE001
+                    loop.call_soon_threadsafe(queue.put_nowait, e)
+                finally:
+                    loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
 
             try:
-                kwargs = {"template": template} if template else {}
-                for chunk in self.stream(query, retrievals, **kwargs):
-                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
-            except Exception as e:  # noqa: BLE001
-                loop.call_soon_threadsafe(queue.put_nowait, e)
+                threading.Thread(target=producer, daemon=True).start()
+
+                while True:
+                    item = await queue.get()
+                    if item is SENTINEL:
+                        break
+                    if isinstance(item, Exception):
+                        logger.error(f"Error in Bedrock stream thread: {item}")
+                        raise item
+                    yield item
             finally:
-                loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
-
-        threading.Thread(target=producer, daemon=True).start()
-
-        while True:
-            item = await queue.get()
-            if item is SENTINEL:
-                break
-            if isinstance(item, Exception):
-                logger.error(f"Error in Bedrock stream thread: {item}")
-                raise item
-            yield item
+                logger.info("Bedrock slot released.")
 
     def health_check(self) -> bool:
         try:
@@ -251,5 +311,5 @@ class LLMModel:
             return True
 
         except Exception as e:
-            logger.error(f"Bedrock LLM health check failed: {e}")
+            logger.error("Bedrock LLM health check failed", error=e)
             return False

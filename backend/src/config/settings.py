@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     AWS_BEDROCK_MODEL_REGION: str = Field(default="ap-south-2", description="AWS region for Bedrock models")
     JINA_API_KEY: str = Field(default=..., description="API key for JINA embedding model.")
 
+    # OpenAI settings
+    OPENAI_API_KEY: str = Field(default=..., description="OpenAI API key")
+    OPENAI_MODEL: str = Field(default="gpt-5-nano", description="Openai Model to use")
+
     # AWS Settings
     AWS_ACCESS_KEY_ID: str = Field(default=..., description="AWS access key ID for S3")
     AWS_SECRET_ACCESS_KEY: str = Field(default=..., description="AWS secret access key for S3")

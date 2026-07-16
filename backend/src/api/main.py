@@ -32,17 +32,17 @@ setup_logging()
 logger = get_logger(__name__)
 
 
-embeddings_service = get_embedddings()
-chroma_db = get_chroma_db()
-sqs_producer = get_sqs_producer()
-llm = get_llm_service()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("app_starting", env=settings.ENV, version=settings.APP_VERSION)
 
     container.initialize()
+
+    embeddings_service = get_embedddings()
+    chroma_db = get_chroma_db()
+    sqs_producer = get_sqs_producer()
+    llm = get_llm_service()
+
     logger.info("initialized all service components", env=settings.ENV, version=settings.APP_VERSION)
 
     if not await check_db_health():
@@ -53,18 +53,18 @@ async def lifespan(app: FastAPI):
         logger.error("sqs_producer_connection_failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the SQS producer. Check logs for details.")
 
-    if not embeddings_service.health_check():
-        logger.error("embeddings_service_connection_failed", env=settings.ENV, version=settings.APP_VERSION)
-        raise RuntimeError("Failed to connect to the embeddings service. Check logs for details.")
+    # if not embeddings_service.health_check():
+    #     logger.error("embeddings_service_connection_failed", env=settings.ENV, version=settings.APP_VERSION)
+    #     raise RuntimeError("Failed to connect to the embeddings service. Check logs for details.")
 
-    if not chroma_db.health_check():
+    if not await chroma_db.health_check():
         logger.error("chroma_db_connection_failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the ChromaDB service. Check logs for details.")
 
-    if not llm.health_check():
+    if not await llm.health_check():
         logger.error("llm model connection failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the LLM service. Check logs for details.")
-    
+
     await create_indexes()
 
     yield
@@ -83,7 +83,7 @@ app.state.limiter = limiter
 
 app.add_exception_handler(
     RateLimitExceeded,
-    _rate_limit_exceeded_handler, # type: ignore
+    _rate_limit_exceeded_handler,  # type: ignore
 )
 
 app.add_middleware(
@@ -97,6 +97,7 @@ app.add_middleware(
 app.add_middleware(
     SlowAPIMiddleware,
 )
+
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -127,4 +128,5 @@ app.include_router(chats_router, prefix="/chats", tags=["Chats"])
 
 
 if __name__ == "__main__":
-    uvicorn.run("src.api.main:app", host=settings.HOST, port=settings.PORT, workers=4)
+    # uvicorn.run("src.api.main:app", host=settings.HOST, port=settings.PORT, workers=1)
+    uvicorn.run("src.api.main:app", host=settings.HOST, port=80, workers=1)

@@ -49,6 +49,65 @@ async def query_retrieval(request: RetrievalRequest, user: Dict = Depends(get_cu
     return llm_response
 
 
+# @router.post("/query/stream", status_code=200, response_class=StreamingResponse)
+# async def query_retrieval_stream(request: RetrievalRequest, background_tasks: BackgroundTasks, user: Dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+#     """Endpoint to handle retrieval queries with streaming response."""
+
+#     background_tasks.add_task(
+#         add_message_to_chat,
+#         chat_id=request.chat_id,
+#         payload={
+#             "user_id": str(user["_id"]),
+#             "role": "user",
+#             "content": request.query,
+#         },
+#         db=db,
+#     )
+
+#     async def stream_response():
+#         assistant_response = ""
+
+#         usage = {"inputTokens": 0, "outputTokens": 0}
+#         stop_reason = "Unknown"
+#         model = None
+#         latency = None
+
+#         try:
+
+#             retrieved_chunks: List[RetrievalResponse] = await retrieval_service.search_query(request)  # type: ignore
+
+#             async for chunk in llm_service.async_stream(query=request.query, retrievals=retrieved_chunks):
+#                 if chunk["type"] == "text":
+#                     assistant_response += chunk["content"]
+#                     yield chunk["content"]
+
+#                 elif chunk["type"] == "metadata":
+#                     usage = chunk["usage"]
+#                     latency = chunk["latency"]
+#                     model = chunk["model"]
+
+#                 elif chunk["type"] == "stop":
+#                     stop_reason = chunk["reason"]
+
+#         finally:
+#             background_tasks.add_task(
+#                 add_message_to_chat,
+#                 chat_id=request.chat_id,
+#                 payload={
+#                     "user_id": str(user["_id"]),
+#                     "role": "assistant",
+#                     "content": assistant_response,
+#                     "input_tokens": usage["inputTokens"],
+#                     "output_tokens": usage["outputTokens"],
+#                     "model": model,
+#                     "latency(ms)": latency,
+#                 },
+#                 db=db,
+#             )
+
+#     return StreamingResponse(stream_response(), media_type="text/event-stream")
+
+
 @router.post("/query/stream", status_code=200, response_class=StreamingResponse)
 async def query_retrieval_stream(request: RetrievalRequest, background_tasks: BackgroundTasks, user: Dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     """Endpoint to handle retrieval queries with streaming response."""
@@ -67,25 +126,15 @@ async def query_retrieval_stream(request: RetrievalRequest, background_tasks: Ba
     async def stream_response():
         assistant_response = ""
 
-        usage = {"inputTokens": 0, "outputTokens": 0}
-        stop_reason = "Unknown"
-
         try:
+            retrieved_chunks: List[RetrievalResponse] = await retrieval_service.search_query(request)
 
-            retrieved_chunks: List[RetrievalResponse] = await retrieval_service.search_query(request)  # type: ignore
-
-            async for chunk in llm_service.async_stream(query=request.query, retrievals=retrieved_chunks):
-                if chunk["type"] == "text":
-                    assistant_response += chunk["content"]
-                    yield chunk["content"]
-
-                elif chunk["type"] == "metadata":
-                    usage = chunk["usage"]
-                    latency = chunk["latency"]
-                    model = chunk["model"]
-
-                elif chunk["type"] == "stop":
-                    stop_reason = chunk["reason"]
+            async for chunk in llm_service.stream(
+                query=request.query,
+                retrievals=retrieved_chunks,
+            ):
+                assistant_response += chunk
+                yield chunk
 
         finally:
             background_tasks.add_task(
@@ -95,12 +144,15 @@ async def query_retrieval_stream(request: RetrievalRequest, background_tasks: Ba
                     "user_id": str(user["_id"]),
                     "role": "assistant",
                     "content": assistant_response,
-                    "input_tokens": usage["inputTokens"],
-                    "output_tokens": usage["outputTokens"],
-                    "model": model,
-                    "latency(ms)": latency,
+                    "input_tokens": None,
+                    "output_tokens": None,
+                    "model": llm_service.model_id,
+                    "latency(ms)": None,
                 },
                 db=db,
             )
 
-    return StreamingResponse(stream_response(), media_type="text/event-stream")
+    return StreamingResponse(
+        stream_response(),
+        media_type="text/event-stream",
+    )
