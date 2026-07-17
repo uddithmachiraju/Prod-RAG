@@ -15,6 +15,7 @@ class DocumentsFlow(SequentialTaskSet):
         # self.refresh()
         # self.logout()
 
+    @task
     def login(self):
         """Simulate user login."""
 

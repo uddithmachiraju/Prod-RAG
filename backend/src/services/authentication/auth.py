@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
+from time import perf_counter
 from uuid import uuid4
 
 from bson import ObjectId
@@ -12,6 +13,14 @@ from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.core.auth import create_refresh_token, create_user_token
 from src.core.email import generate_token, hash_token, send_verification_email
+from src.core.metrics import (
+    login_create_access_token,
+    login_create_refresh_token,
+    login_find_user,
+    login_store_refresh_token,
+    login_total,
+    login_verify_password,
+)
 from src.schemas.user_login import UserLoginRequest, UserLoginResponse
 from src.schemas.user_registration import (
     RefreshRequest,
@@ -127,30 +136,45 @@ async def verify_email(token: str, db: AsyncIOMotorDatabase) -> HTMLResponse:
 async def login_user(payload: UserLoginRequest, request: Request, db: AsyncIOMotorDatabase) -> UserLoginResponse:
     """Authenticate a user and return a JWT token."""
 
+    overall_start = perf_counter()
+
     client_ip = request.client.host if request.client else "unknown"
     logger.info("user attempting login", email=payload.email, client_ip=client_ip)
 
+    start = perf_counter()
     user = await db.users.find_one({"email": payload.email})
+    login_find_user.observe(perf_counter() - start)
 
     # dummy_hash = pwd_context.hash("dummy-password-for-timing-attack-prevention")
     # password_valid = verify_password(payload.password, user["hashed_password"]) if user else pwd_context.verify(payload.password, dummy_hash)
+    start = perf_counter()
     password_valid = await asyncio.to_thread(verify_password, payload.password, user["hashed_password"]) if user else await asyncio.to_thread(pwd_context.verify, payload.password, dummy_hash)
+    login_verify_password.observe(perf_counter() - start)
 
     if not user or not password_valid:
+        login_total.observe(perf_counter() - overall_start)
         logger.warning("user login failed", email=payload.email, client_ip=client_ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
 
     if not user.get("is_email_verified", False):
+        login_total.observe(perf_counter() - overall_start)
         logger.warning("user login failed - email not verified", email=payload.email, client_ip=client_ip)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email address has not been verified.")
 
     if not user.get("is_active", False):
+        login_total.observe(perf_counter() - overall_start)
         logger.warning("user login failed - account inactive", email=payload.email, client_ip=client_ip)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive.")
 
+    start = perf_counter()
     token = create_user_token(user["_id"])
-    refresh_token, refresh_token_jti = create_refresh_token(user["_id"])
+    login_create_access_token.observe(perf_counter() - start)
 
+    start = perf_counter()
+    refresh_token, refresh_token_jti = create_refresh_token(user["_id"])
+    login_create_refresh_token.observe(perf_counter() - start)
+
+    start = perf_counter()
     await db.refresh_tokens.insert_one(
         {
             "jti": refresh_token_jti,
@@ -161,6 +185,7 @@ async def login_user(payload: UserLoginRequest, request: Request, db: AsyncIOMot
             "expires_at": datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS),
         }
     )
+    login_store_refresh_token.observe(perf_counter() - start)
 
     logger.info("user login successful", user_id=str(user["_id"]), email=payload.email, client_ip=client_ip)
 

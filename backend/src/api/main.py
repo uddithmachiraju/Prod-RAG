@@ -5,6 +5,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from prometheus_client import make_asgi_app
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -78,6 +79,8 @@ app = FastAPI(
     debug=settings.DEBUG,
     lifespan=lifespan,
 )
+metrics = make_asgi_app()
+app.mount("/metrics", metrics)
 
 app.state.limiter = limiter
 
@@ -128,5 +131,5 @@ app.include_router(chats_router, prefix="/chats", tags=["Chats"])
 
 
 if __name__ == "__main__":
-    uvicorn.run("src.api.main:app", host=settings.HOST, port=settings.PORT, workers=1)
+    uvicorn.run("src.api.main:app", host=settings.HOST, port=settings.PORT, workers=4)
     # uvicorn.run("src.api.main:app", host=settings.HOST, port=80, workers=1)

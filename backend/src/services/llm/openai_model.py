@@ -15,6 +15,7 @@ from pystache import render  # type: ignore
 
 from src.config.logging import get_logger
 from src.config.settings import get_settings
+from src.schemas.llm import LLMResponse
 from src.schemas.retrieval import RetrievalResponse
 
 logger = get_logger(__name__)
@@ -71,6 +72,41 @@ class LLMModel:
         """exponential backoff with jitter"""
         delay = min(0.5 * (2**attempt), 8.0)
         await asyncio.sleep(delay)
+
+    async def generate(self, query: str, retrievals: List[RetrievalResponse], template: str = llm_prompt) -> LLMResponse:
+        """Generate a single, non-streaming response from OpenAI."""
+
+        prompt = self.render_prompt_template(user_question=query, retrievals=retrievals, template=template)
+
+        last_error: Optional[Exception] = None
+        async with self._semaphore:
+            for attempt in range(self._max_retries + 1):
+                try:
+                    response = await self.client.chat.completions.create(
+                        model=self.model_id,
+                        messages=[
+                            {"role": "user", "content": prompt},
+                        ],
+                        response_format=LLMResponse,
+                    )
+
+                    return response.choices[0].message.content
+                except (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError) as exc:
+                    logger.warning(
+                        "llm.complete.retryable_error",
+                        extra={"attempt": attempt, "error_type": type(exc).__name__},
+                    )
+                    if attempt < self._max_retries:
+                        await self._sleep_backoff(attempt)
+                        continue
+                    break
+
+                except (BadRequestError, AuthenticationError) as exc:
+                    logger.error("llm.complete.fatal_error", extra={"error_type": type(exc).__name__})
+                    raise ValueError(f"Non-retryable LLM error: {exc}") from exc
+
+        logger.error("llm.complete.exhausted_retries", extra={"error_type": type(last_error).__name__})
+        raise ValueError(f"LLM call failed after {self._max_retries} retries: {last_error}") from last_error
 
     async def stream(self, query: str, retrievals: List[RetrievalResponse], template: str = llm_stream_prompt) -> Any:
         """Generate streaming response from OpenAI."""

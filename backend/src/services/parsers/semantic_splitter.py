@@ -12,18 +12,20 @@ from src.schemas.document import DocumentChunk
 from src.services.chroma.db import chroma_client
 
 # from src.services.embeddings.embeds import Embeddings
-from src.services.embeddings.jina_embeds import JinaEmbeddings
+# from src.services.embeddings.jina_embeds import JinaEmbeddings
+from src.services.embeddings.openai_embeds import OpenAIEmbeddings
 
 logger = get_logger(__name__)
 settings = get_settings()
 # embeddings = Embeddings()
-embeddings = JinaEmbeddings()
+# embeddings = JinaEmbeddings()
+embeddings = OpenAIEmbeddings()
 
 _NOISE_PATTERNS = [
-    r"^page\s+\d+\s+of\s+\d+$",
-    r"^headquarters:",
-    r"^\d+\.$",
-    r"^(signature|full name|date)\s*:",
+    re.compile(r"^page\s+\d+\s+of\s+\d+$"),
+    re.compile(r"^headquarters:"),
+    re.compile(r"^\d+\.$"),
+    re.compile(r"^(signature|full name|date)\s*:"),
 ]
 
 _SECTION_HEADING_PATTERN = re.compile(
@@ -41,6 +43,9 @@ _BULLET_PATTERN = re.compile(r"^[•\-\*\u2022\u2013\u2014]")
 # Project title: a line with a | separator and no bullet, e.g. "Real-time Platform | GitHub"
 _PROJECT_TITLE_PATTERN = re.compile(r"^[^•\-\*].+\|\s*(github|gitlab|demo|link|url)", re.IGNORECASE)
 
+_CONTROL_CHARS_PATTERN = re.compile(r"[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]")
+_WHITESPACE_PATTERN = re.compile(r"\s+")
+
 
 class SemanticSplitter:
 
@@ -55,19 +60,10 @@ class SemanticSplitter:
     def _clean_text(self, text: str) -> str:
         if not text or not text.strip():
             return ""
-        text = re.sub(r"\s+", " ", text).strip()
-        text = text.replace("\u00a0", " ")
-        text = text.replace("\u200b", "")
-        text = text.replace("\ufeff", "")
-        text = text.replace("\r", "")
-        text = re.sub(r"[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]", "", text)
+        text = text.replace("\u00a0", " ").replace("\u200b", "").replace("\ufeff", "").replace("\r", "")
+        text = _CONTROL_CHARS_PATTERN.sub("", text)
+        text = _WHITESPACE_PATTERN.sub(" ", text).strip()
         return text.lstrip(" .\n\t")
-
-    @staticmethod
-    def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
-        if len(vec1) != len(vec2):
-            raise ValueError("Vectors must be of the same length")
-        return float(np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)))
 
     @staticmethod
     def _merge_orphan_chunks(chunks: list[str], min_words: int = 25) -> list[str]:
@@ -92,7 +88,7 @@ class SemanticSplitter:
 
     def _is_noise(self, text: str) -> bool:
         lower = text.lower().strip()
-        return any(re.match(p, lower) for p in _NOISE_PATTERNS)
+        return any(p.match(lower) for p in _NOISE_PATTERNS)
 
     def _is_section_heading(self, text: str) -> bool:
         return bool(_SECTION_HEADING_PATTERN.match(text.strip()))
@@ -121,6 +117,13 @@ class SemanticSplitter:
                 continue
             raw_lines.append(cleaned)
 
+        # Pre-compute the per-line boolean checks exactly once instead of
+        # re-running the same regexes multiple times per line inside the loop.
+        is_heading_flags = [self._is_section_heading(line) for line in raw_lines]
+        is_bullet_flags = [bool(_BULLET_PATTERN.match(line)) for line in raw_lines]
+        is_date_flags = [self._is_date_range(line) for line in raw_lines]
+        is_project_flags = [(not is_heading_flags[idx]) and self._is_project_title(line) for idx, line in enumerate(raw_lines)]
+
         paragraphs: list[dict[str, Any]] = []
         i = 0
 
@@ -130,14 +133,14 @@ class SemanticSplitter:
             # 3-line role header: Job Title / Date Range / Company Name
             if (
                 i + 2 < len(raw_lines)
-                and not self._is_section_heading(line)
-                and not _BULLET_PATTERN.match(line)
-                and not self._is_date_range(line)
-                and not self._is_project_title(line)
-                and self._is_date_range(raw_lines[i + 1])
-                and not self._is_section_heading(raw_lines[i + 2])
-                and not _BULLET_PATTERN.match(raw_lines[i + 2])
-                and not self._is_date_range(raw_lines[i + 2])
+                and not is_heading_flags[i]
+                and not is_bullet_flags[i]
+                and not is_date_flags[i]
+                and not is_project_flags[i]
+                and is_date_flags[i + 1]
+                and not is_heading_flags[i + 2]
+                and not is_bullet_flags[i + 2]
+                and not is_date_flags[i + 2]
             ):
                 role_header = f"{line} {raw_lines[i + 1]} {raw_lines[i + 2]}"
                 paragraphs.append(
@@ -152,8 +155,8 @@ class SemanticSplitter:
                 i += 3
                 continue
 
-            is_section_heading = self._is_section_heading(line)
-            is_project_title = (not is_section_heading) and self._is_project_title(line)
+            is_section_heading = is_heading_flags[i]
+            is_project_title = is_project_flags[i]
 
             paragraphs.append(
                 {
@@ -237,50 +240,67 @@ class SemanticSplitter:
             return []
 
     async def parse(self, text: str, document_id: str) -> list[DocumentChunk]:
-        start = time.time()
+        start = time.perf_counter()
 
         try:
             if not text or not text.strip():
                 raise ValueError("Input text is empty or blank.")
 
+            t0 = time.perf_counter()
             paragraphs = self._split_into_paragraphs(text)
+            t1 = time.perf_counter()
 
             if not paragraphs:
                 raise ValueError("No paragraphs found in text.")
 
             chunks = await self._semantic_chunking(paragraphs)
+            t2 = time.perf_counter()
 
-            structured_chunks: list[DocumentChunk] = []
+            embeddings_list = await embeddings.get_embeddings(chunks)
+            t3 = time.perf_counter()
 
-            for index, chunk_text in enumerate(chunks):
-                embedding = await embeddings.get_embeddings(chunk_text)
-                vector_id = f"{document_id}.chunk.{index}"
+            # created_at computed once for the whole batch rather than once per chunk.
+            created_at = datetime.now(timezone.utc)
 
+            ids = [f"{document_id}.chunk.{index}" for index in range(len(chunks))]
+            documents = chunks
+            metadatas = [{"document_id": document_id, "chunk_index": index} for index in range(len(chunks))]
+
+            structured_chunks: list[DocumentChunk] = [
+                DocumentChunk(
+                    chunk_id=str(uuid.uuid4()),
+                    document_id=document_id,
+                    chunk_index=index,
+                    content=chunk_text,
+                    created_at=created_at,
+                    vector_id=vector_id,
+                    embedding_model=settings.OPENAI_EMBED_MODEL_ID,
+                )
+                for index, (chunk_text, vector_id) in enumerate(zip(chunks, ids))
+            ]
+
+            # Write to Chroma in bounded batches instead of one large add() call.
+            for batch_start in range(0, len(ids), 100):
+                batch_end = batch_start + 100
                 self.collection.add(
-                    ids=[vector_id],
-                    documents=[chunk_text],
-                    embeddings=[embedding],  # type: ignore
-                    metadatas=[{"document_id": document_id, "chunk_index": index}],
+                    ids=ids[batch_start:batch_end],
+                    documents=documents[batch_start:batch_end],
+                    embeddings=embeddings_list[batch_start:batch_end],
+                    metadatas=metadatas[batch_start:batch_end],  # type: ignore
                 )
-                structured_chunks.append(
-                    DocumentChunk(
-                        chunk_id=str(uuid.uuid4()),
-                        document_id=document_id,
-                        chunk_index=index,
-                        content=chunk_text,
-                        created_at=datetime.now(timezone.utc),
-                        vector_id=vector_id,
-                        embedding_model=settings.AWS_BEDROCK_EMBED_MODEL_ID,
-                    )
-                )
+            t4 = time.perf_counter()
 
             logger.info(
                 "semantic_chunking_complete",
                 word_count=len(text.split()),
                 paragraph_count=len(paragraphs),
                 chunk_count=len(chunks),
-                parsed_at=datetime.utcnow().isoformat(),
-                processing_time_ms=round((time.time() - start) * 1000, 2),
+                parsed_at=datetime.now(timezone.utc).isoformat(),
+                split_ms=round((t1 - t0) * 1000, 2),
+                chunk_ms=round((t2 - t1) * 1000, 2),
+                embedding_ms=round((t3 - t2) * 1000, 2),
+                chroma_ms=round((t4 - t3) * 1000, 2),
+                total_ms=round((t4 - start) * 1000, 2),
             )
 
             return structured_chunks
@@ -288,225 +308,3 @@ class SemanticSplitter:
         except Exception as e:
             logger.error(f"Error during parsing: {e}")
             return []
-
-
-# import asyncio
-# import re
-# import time
-# import uuid
-# from datetime import datetime, timezone
-
-# from liteparse import LiteParse
-
-# from src.config.logging import get_logger
-# from src.config.settings import get_settings
-# from src.schemas.document import DocumentChunk
-# from src.services.chroma.db import chroma_client
-# from src.services.embeddings.jina_embeds import JinaEmbeddings
-
-# logger = get_logger(__name__)
-# settings = get_settings()
-# embeddings = JinaEmbeddings()
-
-# # output_format="markdown" gives layout-aware text (headings/tables/lists
-# # reconstructed) which tends to produce cleaner paragraph boundaries than
-# # raw extracted text for _split_paragraphs below.
-# _liteparse = LiteParse(output_format="markdown")
-
-# _WHITESPACE_RE = re.compile(r"[ \t]+")
-# _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f\u200b\ufeff]")
-# _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
-
-# MAX_CHUNK_CHARS = 1200
-# MIN_CHUNK_CHARS = 100  # below this, a chunk gets merged into a neighbor
-
-
-# class SemanticSplitter:
-#     """
-#     Generic, format-agnostic splitter for any document type (resumes,
-#     contracts, articles, reports, transcripts, plain text, etc.) +
-#     parallel embedding + single batched vector-store write. No document-type
-#     specific structural heuristics (section/role/project detection) — those
-#     cost CPU cycles for marginal chunk-quality gain, don't generalize past
-#     one document type, and are not needed for retrieval-quality embeddings.
-#     """
-
-#     def __init__(self) -> None:
-#         self.collection = chroma_client.get_or_create_collection(
-#             name=settings.CHROMA_DB_COLLECTION,
-#             embedding_function=None,
-#             metadata={"hnsw:space": "cosine"},
-#         )
-
-#     @staticmethod
-#     def _clean_text(text: str) -> str:
-#         if not text:
-#             return ""
-#         text = text.replace("\r", "").replace("\u00a0", " ")
-#         text = _CONTROL_CHARS_RE.sub("", text)
-#         text = _WHITESPACE_RE.sub(" ", text).strip()
-#         return text
-
-#     @staticmethod
-#     def _split_paragraphs(text: str) -> list[str]:
-#         """
-#         Try blank-line-delimited paragraphs first (articles, contracts,
-#         reports). If that collapses to a single block (single-newline
-#         formats, or text with no line breaks at all — common in OCR output
-#         or plain-text dumps), fall back to single-newline splitting.
-#         """
-#         blocks = [p for p in re.split(r"\n\s*\n", text) if p.strip()]
-#         if len(blocks) > 1:
-#             return blocks
-
-#         lines = [ln for ln in text.split("\n") if ln.strip()]
-#         if len(lines) > 1:
-#             return lines
-
-#         return [text]
-
-#     def _split_oversized(self, paragraph: str) -> list[str]:
-#         """
-#         A paragraph can itself exceed MAX_CHUNK_CHARS (long-form prose,
-#         legal text, no bullet/line structure). Split on sentence boundaries
-#         first; if a single "sentence" is still too long (e.g. no
-#         punctuation at all), hard-split on character count as a last resort.
-#         """
-#         if len(paragraph) <= MAX_CHUNK_CHARS:
-#             return [paragraph]
-
-#         sentences = [s for s in _SENTENCE_SPLIT_RE.split(paragraph) if s]
-#         pieces: list[str] = []
-#         current = ""
-#         for sentence in sentences:
-#             if current and len(current) + len(sentence) + 1 > MAX_CHUNK_CHARS:
-#                 pieces.append(current)
-#                 current = sentence
-#             else:
-#                 current = f"{current} {sentence}".strip() if current else sentence
-#         if current:
-#             pieces.append(current)
-
-#         final: list[str] = []
-#         for piece in pieces:
-#             if len(piece) <= MAX_CHUNK_CHARS:
-#                 final.append(piece)
-#             else:
-#                 final.extend(piece[i : i + MAX_CHUNK_CHARS] for i in range(0, len(piece), MAX_CHUNK_CHARS))
-#         return final
-
-#     def _chunk_text(self, text: str) -> list[str]:
-#         """
-#         Split into paragraphs (any layout), break up any paragraph that's
-#         too large on its own, then greedily pack paragraphs into chunks up
-#         to MAX_CHUNK_CHARS. Tiny leftover chunks get merged into the
-#         previous chunk instead of being emitted alone.
-#         """
-#         raw_paragraphs = self._split_paragraphs(text)
-#         paragraphs: list[str] = []
-#         for raw in raw_paragraphs:
-#             cleaned = self._clean_text(raw)
-#             if cleaned:
-#                 paragraphs.extend(self._split_oversized(cleaned))
-
-#         if not paragraphs:
-#             return []
-
-#         chunks: list[str] = []
-#         current: list[str] = []
-#         current_len = 0
-
-#         for para in paragraphs:
-#             para_len = len(para)
-
-#             if current and current_len + para_len + 1 > MAX_CHUNK_CHARS:
-#                 chunks.append("\n".join(current))
-#                 current = []
-#                 current_len = 0
-
-#             current.append(para)
-#             current_len += para_len + 1
-
-#         if current:
-#             chunks.append("\n".join(current))
-
-#         # merge any undersized trailing/orphan chunk into its neighbor
-#         merged: list[str] = []
-#         for chunk in chunks:
-#             if merged and len(chunk) < MIN_CHUNK_CHARS:
-#                 merged[-1] = merged[-1] + "\n" + chunk
-#             else:
-#                 merged.append(chunk)
-
-#         return merged
-
-#     async def parse_file(self, file_path: str, document_id: str) -> list[DocumentChunk]:
-#         """
-#         File-based entry point: extract text via LiteParse, then run the
-#         exact same chunk/embed/store pipeline as parse(). Use this instead
-#         of parse() when you have a file on disk (PDF, DOCX, XLSX, PPTX,
-#         image) rather than already-extracted text.
-
-#         LiteParse's parse() call is not async — run it in a thread so it
-#         doesn't block the event loop while other requests are in flight.
-#         """
-#         loop = asyncio.get_running_loop()
-#         result = await loop.run_in_executor(None, _liteparse.parse, file_path)
-#         return await self.parse(result.text, document_id)
-
-#     async def parse(self, text: str, document_id: str) -> list[DocumentChunk]:
-#         start = time.time()
-
-#         try:
-#             if not text or not text.strip():
-#                 raise ValueError("Input text is empty or blank.")
-
-#             chunks = self._chunk_text(text)
-#             if not chunks:
-#                 raise ValueError("No chunks produced from text.")
-
-#             # Fire all embedding requests concurrently instead of awaiting
-#             # them one at a time — this is the dominant latency cost.
-#             chunk_embeddings = await asyncio.gather(*(embeddings.get_embeddings(chunk) for chunk in chunks))
-
-#             now = datetime.now(timezone.utc)
-#             ids: list[str] = []
-#             metadatas: list[dict] = []
-#             structured_chunks: list[DocumentChunk] = []
-
-#             for index, (chunk_text, embedding) in enumerate(zip(chunks, chunk_embeddings)):
-#                 vector_id = f"{document_id}.chunk.{index}"
-#                 ids.append(vector_id)
-#                 metadatas.append({"document_id": document_id, "chunk_index": index})
-#                 structured_chunks.append(
-#                     DocumentChunk(
-#                         chunk_id=str(uuid.uuid4()),
-#                         document_id=document_id,
-#                         chunk_index=index,
-#                         content=chunk_text,
-#                         created_at=now,
-#                         vector_id=vector_id,
-#                         embedding_model=settings.AWS_BEDROCK_EMBED_MODEL_ID,
-#                     )
-#                 )
-
-#             # single batched write instead of one add() call per chunk
-#             self.collection.add(
-#                 ids=ids,
-#                 documents=chunks,
-#                 embeddings=chunk_embeddings,  # type: ignore
-#                 metadatas=metadatas,  # type: ignore
-#             )
-
-#             logger.info(
-#                 "semantic_chunking_complete",
-#                 word_count=len(text.split()),
-#                 chunk_count=len(chunks),
-#                 processing_time_ms=round((time.time() - start) * 1000, 2),
-#             )
-
-#             return structured_chunks
-
-#         except Exception as e:
-#             logger.error(f"Error during parsing: {e}")
-#             return []

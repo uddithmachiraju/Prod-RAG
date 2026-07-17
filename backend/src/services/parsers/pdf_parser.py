@@ -14,6 +14,9 @@ from src.services.storage.s3_service import download_file_from_s3
 
 logger = get_logger(__name__)
 
+# Compiled once at import time instead of recompiled on every call.
+_END_PUNCT_PATTERN = re.compile(r"[.!?:,\-]$")
+
 
 class PDFParser(BaseParser):
 
@@ -26,13 +29,27 @@ class PDFParser(BaseParser):
 
     async def parse(self, user_id: str, file_metadata: Dict[str, Any]) -> Document:
         document_id = file_metadata.get("document_id", str(uuid4()))
+        # uploaded_at and processed_at intentionally stay as two separate calls:
+        # they mark genuinely different points in time (start vs. end of
+        # processing), unlike the per-chunk created_at in SemanticSplitter,
+        # which was redundant because all chunks are created in one batch.
         uploaded_at = self._get_current_timestamp()
         total_start = time.perf_counter()
 
         parsing_start = time.perf_counter()
         file_bytes = await download_file_from_s3(file_metadata.get("file_key", ""))
+        download_time = round(time.perf_counter() - parsing_start, 4)
+
+        extract_start = time.perf_counter()
         full_text = self._extract_data(file_bytes)
+        extract_time = round(time.perf_counter() - extract_start, 4)
         parsing_time = round(time.perf_counter() - parsing_start, 4)
+
+        logger.info(
+            "pdf_parser",
+            download_ms=download_time * 1000,
+            extract_ms=extract_time * 1000,
+        )
 
         chunking_start = time.perf_counter()
         chunks: List[DocumentChunk] = await self.semantic_splitter.parse(document_id=str(document_id), text=full_text)
@@ -65,60 +82,52 @@ class PDFParser(BaseParser):
         )
 
     def _extract_data(self, file_bytes: bytes) -> str:
-        """
-        Extract text preserving one logical line per output line.
 
-        From raw block output we know:
-        - Role headers are 3 separate blocks: job title / date / company
-        - Bullets are individual blocks
-        - Section headings are individual blocks
-        - Only true prose wraps (mid-sentence line breaks) should be joined
-
-        We only join two lines if:
-          - previous line does NOT end in sentence-ending punctuation
-          - next line starts with a lowercase letter (true prose continuation)
-        Everything else stays as separate lines.
-        """
+        doc = None
         try:
             doc = fitz.open(stream=file_bytes, filetype="pdf")
+
             all_lines: list[str] = []
+            end_punct = _END_PUNCT_PATTERN.search
 
             for page in doc:
-                blocks = sorted(page.get_text("blocks"), key=lambda b: (b[1], b[0]))
+                blocks = page.get_text("blocks")
+                blocks.sort(key=lambda b: (b[1], b[0]))
 
                 for block in blocks:
-                    raw = block[4].strip()
-                    if not raw:
+                    raw = block[4]
+                    if not raw or not raw.strip():
                         continue
 
-                    sub_lines = [l.strip() for l in raw.split("\n") if l.strip()]
-                    if not sub_lines:
-                        continue
+                    buffer: str | None = None
 
-                    merged: list[str] = []
-                    buffer = ""
+                    for line in raw.splitlines():
+                        line = line.strip()
+                        if not line:
+                            continue
 
-                    for line in sub_lines:
-                        if not buffer:
+                        if buffer is None:
                             buffer = line
                             continue
 
-                        prev_ends_mid_sentence = not re.search(r"[.!?:,\-]$", buffer)
-                        next_is_lowercase = line[0].islower() if line else False
+                        prev_ends_mid_sentence = not end_punct(buffer)
+                        next_is_lowercase = line[0].islower()
 
                         if prev_ends_mid_sentence and next_is_lowercase:
                             buffer += " " + line
                         else:
-                            merged.append(buffer)
+                            all_lines.append(buffer)
                             buffer = line
 
                     if buffer:
-                        merged.append(buffer)
-
-                    all_lines.extend(merged)
+                        all_lines.append(buffer)
 
             return "\n".join(all_lines)
 
         except Exception as e:
             logger.exception("PDF parsing failed")
             raise RuntimeError("Failed to parse PDF") from e
+
+        finally:
+            if doc is not None:
+                doc.close()

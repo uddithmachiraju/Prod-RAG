@@ -22,21 +22,20 @@ settings = get_settings()
 class OpenAIEmbeddings(Embeddings):
     """Handles embeddings using the OpenAI embeddings API."""
 
-    def __init__(self) -> None: 
+    def __init__(self) -> None:
         super().__init__()
 
         if not settings.OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY was not configured in the settings.")
-        
+
         self.model_id = settings.OPENAI_EMBED_MODEL_ID
         self._semaphore = asyncio.Semaphore(25)
-        
+
         self._client = AsyncClient(
-            api_key=settings.OPENAI_API_KEY, 
-            timeout=30.0, 
+            api_key=settings.OPENAI_API_KEY,
+            timeout=30.0,
             max_retries=0,
         )
-
 
     async def aclose(self) -> None:
         """Close the HTTP client."""
@@ -49,7 +48,6 @@ class OpenAIEmbeddings(Embeddings):
         if texts is None:
             logger.error("No text was provided in the input payload.", model=self.model_id, environment=settings.ENV)
             raise ValueError("No text was provided.")
-
 
         embeddings_list: List[List[float]] = []
         embeddings_list.extend(await self._fetch_embeddings(texts))
@@ -66,9 +64,10 @@ class OpenAIEmbeddings(Embeddings):
 
                 try:
                     response = await self._client.embeddings.create(
-                        input=inputs, 
-                        model=self.model_id, 
+                        input=inputs,
+                        model=self.model_id,
                         encoding_format="float",
+                        dimensions=1024,
                     )
                 except APITimeoutError as e:
                     if is_last_attempt:
@@ -105,8 +104,6 @@ class OpenAIEmbeddings(Embeddings):
                     await asyncio.sleep(wait)
                     continue
                 except APIStatusError as e:
-                    # Retry server-side errors (5xx); 4xx other than 429 means the
-                    # request itself is bad and won't succeed on retry.
                     if e.status_code >= 500 and not is_last_attempt:
                         wait = self._backoff_delay(attempt)
                         logger.warning(
@@ -124,8 +121,6 @@ class OpenAIEmbeddings(Embeddings):
                     )
                     raise
 
-                # OpenAI returns data items in input order already, but sort by
-                # index to be safe (mirrors the Jina client's behavior).
                 data = sorted(response.data, key=lambda d: d.index)
                 embeddings_list = [d.embedding for d in data]
 
@@ -170,7 +165,7 @@ async def _main() -> None:
 
     embedder = OpenAIEmbeddings()
 
-    if not embedder.health_check():
+    if not await embedder.health_check():
         print("Health check failed — check OPENAI_API_KEY / model id.")
         return
 

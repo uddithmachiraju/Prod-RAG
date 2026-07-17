@@ -127,7 +127,7 @@ async def query_retrieval_stream(request: RetrievalRequest, background_tasks: Ba
         assistant_response = ""
 
         try:
-            retrieved_chunks: List[RetrievalResponse] = await retrieval_service.search_query(request)
+            retrieved_chunks: List[RetrievalResponse] = await retrieval_service.search_query(request)  # type: ignore
 
             async for chunk in llm_service.stream(
                 query=request.query,
