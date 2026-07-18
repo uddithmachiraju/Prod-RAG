@@ -30,7 +30,7 @@ async def verify_email(token: str = Query(..., description="The verification tok
 
 
 @router.post("/login", response_model=UserLoginResponse)
-@limiter.limit("10000/minute")
+@limiter.limit("8/second")
 async def login_user(request: Request, response: Response, payload: UserLoginRequest, db: AsyncIOMotorDatabase = Depends(get_db)):
     """Authenticate the user and return a JWT token if successful."""
 
@@ -38,7 +38,8 @@ async def login_user(request: Request, response: Response, payload: UserLoginReq
 
 
 @router.post("/refresh", response_model=RefreshResponse)
-async def refresh_token(payload: RefreshRequest, db: AsyncIOMotorDatabase = Depends(get_db)):
+@limiter.limit("8/second")
+async def refresh_token(request: Request, response: Response, payload: RefreshRequest, db: AsyncIOMotorDatabase = Depends(get_db)):
     """Refresh the user's JWT tokens."""
 
     return await auth_service.refresh_token(payload, db)

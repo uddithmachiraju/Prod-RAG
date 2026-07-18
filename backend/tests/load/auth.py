@@ -31,23 +31,23 @@ class AuthFlow(SequentialTaskSet):
             else:
                 response.failure(f"Failed to login: {response.text}")
 
-    # @task
-    # def refresh(self):
-    #     """Simulate token refresh."""
+    @task
+    def refresh(self):
+        """Simulate token refresh."""
 
-    #     payload = {"refresh_token": self.refresh_token}
+        payload = {"refresh_token": self.refresh_token}
 
-    #     with self.client.post("/auth/refresh", json=payload, catch_response=True) as response:
-    #         if response.status_code == 200:
+        with self.client.post("/auth/refresh", json=payload, catch_response=True) as response:
+            if response.status_code == 200:
 
-    #             data = response.json()
+                data = response.json()
 
-    #             self.access_token = data.get("access_token")
-    #             self.refresh_token = data.get("refresh_token")
+                self.access_token = data.get("access_token")
+                self.refresh_token = data.get("refresh_token")
 
-    #             response.success()
-    #         else:
-    #             response.failure(f"Failed to refresh token: {response.text}")
+                response.success()
+            else:
+                response.failure(f"Failed to refresh token: {response.text}")
 
     # @task
     # def logout(self):

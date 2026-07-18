@@ -1,9 +1,9 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
-from uuid import uuid4
 
 from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from jose import JWTError, jwt
@@ -13,14 +13,16 @@ from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.core.auth import create_refresh_token, create_user_token
 from src.core.email import generate_token, hash_token, send_verification_email
-from src.core.metrics import (
-    login_create_access_token,
-    login_create_refresh_token,
-    login_find_user,
-    login_store_refresh_token,
-    login_total,
-    login_verify_password,
-)
+
+# from src.core.metrics import (
+#     login_create_access_token,
+#     login_create_refresh_token,
+#     login_find_user,
+#     login_store_refresh_token,
+#     login_total,
+#     login_verify_password,
+# )
+from src.core.metrics import record_timing
 from src.schemas.user_login import UserLoginRequest, UserLoginResponse
 from src.schemas.user_registration import (
     RefreshRequest,
@@ -32,7 +34,7 @@ from src.schemas.user_registration import (
 logger = get_logger(__name__)
 settings = get_settings()
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=10)
 
 dummy_hash = pwd_context.hash("dummy-password-for-timing-attack-prevention")
 
@@ -47,6 +49,20 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plain password against a hashed password."""
 
     return pwd_context.verify(plain_password, hashed_password)
+
+async def _store_refresh_token(db: AsyncIOMotorDatabase, refresh_token_jti: str, user_id: str):
+    start = perf_counter()
+    await db.refresh_tokens.insert_one(
+        {
+            "jti": refresh_token_jti,
+            "user_id": user_id,
+            "revoked": False,
+            "replaced_by": None,
+            "created_at": datetime.now(timezone.utc),
+            "expires_at": datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS),
+        }
+    )
+    record_timing("login.store_refresh_token", (perf_counter() - start) * 1000)
 
 
 async def register_user(payload: UserRegistrationRequest, db: AsyncIOMotorDatabase) -> UserRegistrationResponse:
@@ -136,56 +152,53 @@ async def verify_email(token: str, db: AsyncIOMotorDatabase) -> HTMLResponse:
 async def login_user(payload: UserLoginRequest, request: Request, db: AsyncIOMotorDatabase) -> UserLoginResponse:
     """Authenticate a user and return a JWT token."""
 
-    overall_start = perf_counter()
-
     client_ip = request.client.host if request.client else "unknown"
     logger.info("user attempting login", email=payload.email, client_ip=client_ip)
 
     start = perf_counter()
     user = await db.users.find_one({"email": payload.email})
-    login_find_user.observe(perf_counter() - start)
+    record_timing("login.find_user", (perf_counter() - start) * 1000)
 
     # dummy_hash = pwd_context.hash("dummy-password-for-timing-attack-prevention")
     # password_valid = verify_password(payload.password, user["hashed_password"]) if user else pwd_context.verify(payload.password, dummy_hash)
     start = perf_counter()
     password_valid = await asyncio.to_thread(verify_password, payload.password, user["hashed_password"]) if user else await asyncio.to_thread(pwd_context.verify, payload.password, dummy_hash)
-    login_verify_password.observe(perf_counter() - start)
+    record_timing("login.verify_password", (perf_counter() - start) * 1000)
 
     if not user or not password_valid:
-        login_total.observe(perf_counter() - overall_start)
         logger.warning("user login failed", email=payload.email, client_ip=client_ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
 
     if not user.get("is_email_verified", False):
-        login_total.observe(perf_counter() - overall_start)
         logger.warning("user login failed - email not verified", email=payload.email, client_ip=client_ip)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Email address has not been verified.")
 
     if not user.get("is_active", False):
-        login_total.observe(perf_counter() - overall_start)
         logger.warning("user login failed - account inactive", email=payload.email, client_ip=client_ip)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive.")
 
     start = perf_counter()
     token = create_user_token(user["_id"])
-    login_create_access_token.observe(perf_counter() - start)
+    record_timing("login.create_access_token", (perf_counter() - start) * 1000)
 
     start = perf_counter()
     refresh_token, refresh_token_jti = create_refresh_token(user["_id"])
-    login_create_refresh_token.observe(perf_counter() - start)
+    record_timing("login.create_refresh_token", (perf_counter() - start) * 1000)
 
-    start = perf_counter()
-    await db.refresh_tokens.insert_one(
-        {
-            "jti": refresh_token_jti,
-            "user_id": str(user["_id"]),
-            "revoked": False,
-            "replaced_by": None,
-            "created_at": datetime.now(timezone.utc),
-            "expires_at": datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS),
-        }
-    )
-    login_store_refresh_token.observe(perf_counter() - start)
+    # start = perf_counter()
+    # await db.refresh_tokens.insert_one(
+    #     {
+    #         "jti": refresh_token_jti,
+    #         "user_id": str(user["_id"]),
+    #         "revoked": False,
+    #         "replaced_by": None,
+    #         "created_at": datetime.now(timezone.utc),
+    #         "expires_at": datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS),
+    #     }
+    # )
+    # record_timing("login.store_refresh_token", (perf_counter() - start) * 1000)
+
+    asyncio.create_task(_store_refresh_token(db, refresh_token_jti, user["_id"]))
 
     logger.info("user login successful", user_id=str(user["_id"]), email=payload.email, client_ip=client_ip)
 
@@ -203,7 +216,9 @@ async def refresh_token(data: RefreshRequest, db: AsyncIOMotorDatabase) -> Refre
     """Refresh the user's access token using a valid refresh token."""
 
     try:
+        start = perf_counter()
         payload = jwt.decode(data.refresh_token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        record_timing("refresh.jwt_decode", (perf_counter() - start) * 1000)
 
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type.")
@@ -218,18 +233,29 @@ async def refresh_token(data: RefreshRequest, db: AsyncIOMotorDatabase) -> Refre
     if not jti or not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload.")
 
-    new_refresh_token_jti_placeholder = str(uuid4())
+    try:
+        user_object_id = ObjectId(user_id)
+    except InvalidId:
+        logger.warning("refresh_token_invalid_user_id", user_id=user_id)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload.")
 
+    start = perf_counter()
+    new_access_token = create_user_token(user_id)
+    new_refresh_token, new_refresh_token_jti = create_refresh_token(user_id)
+    record_timing("refresh.create_tokens", (perf_counter() - start) * 1000)
+
+    start = perf_counter()
     token_doc = await db.refresh_tokens.find_one_and_update(
         {"jti": jti, "revoked": False},
         {
             "$set": {
                 "revoked": True,
-                "replaced_by": new_refresh_token_jti_placeholder,
+                "replaced_by": new_refresh_token_jti,
                 "revoked_at": datetime.now(timezone.utc),
             },
         },
     )
+    record_timing("refresh.find_and_update_database", (perf_counter() - start) * 1000)
 
     if token_doc is None:
         existing = await db.refresh_tokens.find_one({"jti": jti})
@@ -240,23 +266,16 @@ async def refresh_token(data: RefreshRequest, db: AsyncIOMotorDatabase) -> Refre
         logger.warning("refresh_token_already_revoked", jti=jti, user_id=user_id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has already been revoked.")
 
-    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    start = perf_counter()
+    user = await db.users.find_one({"_id": user_object_id}, {"_id": 1})
+    record_timing("refresh.find_user", (perf_counter() - start) * 1000)
+
     if not user:
         logger.warning("refresh_token_user_not_found", user_id=user_id)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
 
-    new_access_token = create_user_token(user_id)
-    new_refresh_token, new_refresh_token_jti = create_refresh_token(user_id)
-
-    await db.refresh_tokens.update_one(
-        {"jti": jti},
-        {
-            "$set": {
-                "replaced_by": new_refresh_token_jti,
-            }
-        },
-    )
-
+    
+    start = perf_counter()
     await db.refresh_tokens.insert_one(
         {
             "jti": new_refresh_token_jti,
@@ -267,6 +286,7 @@ async def refresh_token(data: RefreshRequest, db: AsyncIOMotorDatabase) -> Refre
             "expires_at": datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS),
         }
     )
+    record_timing("refresh.store_refresh_token", (perf_counter() - start) * 1000)
 
     return RefreshResponse(
         access_token=new_access_token,

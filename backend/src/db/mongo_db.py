@@ -16,6 +16,11 @@ def get_mongo_client() -> AsyncIOMotorClient:
         settings.MONGO_URI,
         appname=settings.APP_NAME,
         tz_aware=True,
+        minPoolSize=10, 
+        maxPoolSize=100, 
+        connectTimeoutMS=5000, 
+        serverSelectionTimeoutMS=5000, 
+        waitQueueTimeoutMs=5000,
     )
 
 
@@ -30,6 +35,14 @@ async def close_db() -> None:
 
     get_mongo_client().close()
     logger.info("mongo_client_closed", database=get_mongo_client().get_default_database().name)
+
+
+async def warm_up_pool() -> None:
+    """Pre-establish connections so the first real burst of traffic doesn't pay cold-start cost."""
+    
+    db = await get_db()
+    await db.command("ping")
+    logger.info("mongo_pool_warmed", min_pool_size=10)
 
 
 async def check_db_health() -> bool:

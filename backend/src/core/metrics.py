@@ -1,31 +1,36 @@
-from prometheus_client import Histogram
+import os
+from datetime import datetime, timezone
 
-login_find_user = Histogram(
-    "login_find_user_seconds",
-    "Time spent finding the user in MongoDB",
-)
+import pandas as pd  # type: ignore
 
-login_verify_password = Histogram(
-    "login_verify_password_seconds",
-    "Time spent verifying the password",
-)
+from src.config.logging import get_logger
 
-login_create_access_token = Histogram(
-    "login_create_access_token_seconds",
-    "Time spent generating the access token",
-)
+logger = get_logger(__name__)
 
-login_create_refresh_token = Histogram(
-    "login_create_refresh_token_seconds",
-    "Time spent generating the refresh token",
-)
+timing_records: list[dict] = []
 
-login_store_refresh_token = Histogram(
-    "login_store_refresh_token_seconds",
-    "Time spent storing the refresh token",
-)
+def record_timing(event: str, duration_ms: float):
+    timing_records.append({
+        "event": event,
+        "flow": event.split(".")[0],
+        "duration_ms": duration_ms,
+        "worker_pid": os.getpid(),
+        "ts": datetime.now(timezone.utc).replace(tzinfo=None),
+    })
 
-login_total = Histogram(
-    "login_total_seconds",
-    "Total login endpoint latency",
-)
+def flush_timings(output_dir: str = "/app/timings"):
+    if not timing_records:
+        logger.info("no_timing_records_to_flush", worker_pid=os.getpid())
+        return
+
+    df = pd.DataFrame(timing_records)
+    pid = os.getpid()
+    path = f"{output_dir}/timings_worker_{pid}.xlsx"
+
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        for flow_name, group in df.groupby("flow"):
+            group.drop(columns="flow").sort_values("ts").to_excel(
+                writer, sheet_name=flow_name[:31], index=False
+            )
+
+    logger.info("timings_flushed", worker_pid=pid, path=path, rows=len(df))

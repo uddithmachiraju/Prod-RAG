@@ -1,3 +1,5 @@
+import asyncio
+import concurrent.futures
 from contextlib import asynccontextmanager
 from time import time
 
@@ -5,7 +7,8 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from prometheus_client import make_asgi_app
+
+# from prometheus_client import make_asgi_app
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -20,13 +23,13 @@ from src.config.settings import get_settings
 from src.core.container import (
     container,
     get_chroma_db,
-    get_embedddings,
     get_llm_service,
     get_sqs_producer,
 )
+from src.core.metrics import flush_timings
 from src.core.rate_limiter import limiter
 from src.db.indexes import create_indexes
-from src.db.mongo_db import check_db_health, close_db
+from src.db.mongo_db import check_db_health, close_db, warm_up_pool
 
 settings = get_settings()
 setup_logging()
@@ -39,7 +42,10 @@ async def lifespan(app: FastAPI):
 
     container.initialize()
 
-    embeddings_service = get_embedddings()
+    loop = asyncio.get_event_loop()
+    loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=64))
+
+    # embeddings_service = get_embedddings()
     chroma_db = get_chroma_db()
     sqs_producer = get_sqs_producer()
     llm = get_llm_service()
@@ -66,9 +72,11 @@ async def lifespan(app: FastAPI):
         logger.error("llm model connection failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the LLM service. Check logs for details.")
 
+    await warm_up_pool()
     await create_indexes()
 
     yield
+    flush_timings()
     await close_db()
     logger.info("app_stopping", env=settings.ENV, version=settings.APP_VERSION)
 
@@ -79,8 +87,8 @@ app = FastAPI(
     debug=settings.DEBUG,
     lifespan=lifespan,
 )
-metrics = make_asgi_app()
-app.mount("/metrics", metrics)
+# metrics = make_asgi_app()
+# app.mount("/metrics", metrics)
 
 app.state.limiter = limiter
 
@@ -131,5 +139,5 @@ app.include_router(chats_router, prefix="/chats", tags=["Chats"])
 
 
 if __name__ == "__main__":
-    uvicorn.run("src.api.main:app", host=settings.HOST, port=settings.PORT, workers=4)
+    uvicorn.run("src.api.main:app", host=settings.HOST, port=settings.PORT, workers=2)
     # uvicorn.run("src.api.main:app", host=settings.HOST, port=80, workers=1)
