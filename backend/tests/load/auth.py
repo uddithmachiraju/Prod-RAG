@@ -49,17 +49,17 @@ class AuthFlow(SequentialTaskSet):
             else:
                 response.failure(f"Failed to refresh token: {response.text}")
 
-    # @task
-    # def logout(self):
-    #     """Simulate user logout."""
+    @task
+    def logout(self):
+        """Simulate user logout."""
 
-    #     payload = {"refresh_token": self.refresh_token}
+        payload = {"refresh_token": self.refresh_token}
 
-    #     with self.client.post("/auth/logout", json=payload, catch_response=True) as response:
-    #         if response.status_code == 200:
-    #             response.success()
-    #         else:
-    #             response.failure(f"Failed to logout: {response.text}")
+        with self.client.post("/auth/logout", json=payload, catch_response=True) as response:
+            if response.status_code == 200:
+                response.success()
+            else:
+                response.failure(f"Failed to logout: {response.text}")
 
 
 class AuthenticationUser(HttpUser):

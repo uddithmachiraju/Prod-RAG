@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Dict, List, Optional
 
 from openai import (
@@ -15,6 +16,7 @@ from pystache import render  # type: ignore
 
 from src.config.logging import get_logger
 from src.config.settings import get_settings
+from src.core.metrics import record_timing
 from src.schemas.llm import LLMResponse
 from src.schemas.retrieval import RetrievalResponse
 
@@ -113,39 +115,113 @@ class LLMModel:
 
         prompt = self.render_prompt_template(user_question=query, retrievals=retrievals, template=template)
         last_error: Optional[Exception] = None
+        first_token_sent = False
 
-        async with self._semaphore:
-            for attempt in range(self._max_retries + 1):
-                try:
+        for attempt in range(self._max_retries + 1):
+            try:
+                first_token_time: Optional[float] = None
+                request_start = perf_counter()
+
+                async with self._semaphore:
+                    start = perf_counter()
+
                     stream_resp = await self.client.chat.completions.create(
                         model=self.model_id,
                         messages=[{"role": "user", "content": prompt}],
                         stream=True,
                         stream_options={"include_usage": True},
                     )
+
                     async for chunk in stream_resp:
+                        if chunk.usage is not None:
+                            yield None, {
+                                "prompt_tokens": chunk.usage.prompt_tokens, 
+                                "completetion_tokens": chunk.usage.completion_tokens, 
+                                "total_tokens": chunk.usage.total_tokens,
+                            }
+                            continue
+
                         if not chunk.choices:
                             continue
+
                         delta = chunk.choices[0].delta.content
+
                         if delta:
-                            yield delta
-                    return
-                except (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError) as exc:
-                    last_error = exc
-                    logger.warning(
-                        "llm.stream.retryable_error",
-                        extra={"attempt": attempt, "error_type": type(exc).__name__},
+                            if first_token_time is None:
+                                first_token_time = perf_counter()
+                                record_timing(
+                                    "llm.time_to_first_token",
+                                    (first_token_time - request_start) * 1000,
+                                )
+                                record_timing(
+                                    "llm.semaphore_wait",
+                                    (start - request_start) * 1000,
+                                )
+                            first_token_sent = True
+                            yield delta, None
+
+                total_ms = (perf_counter() - request_start) * 1000
+                record_timing("llm.chat_completion", total_ms)
+                if first_token_time is not None:
+                    record_timing(
+                        "llm.generation_after_first_token",
+                        (perf_counter() - first_token_time) * 1000,
                     )
-                    if attempt < self._max_retries:
-                        await self._sleep_backoff(attempt)
-                        continue
-                    break
-                except (BadRequestError, AuthenticationError) as exc:
-                    logger.error("llm.stream.fatal_error", extra={"error_type": type(exc).__name__})
-                    raise Exception(f"Non-retryable LLM error: {exc}") from exc
+                return
+            
+            except (RateLimitError, APIConnectionError, APITimeoutError, InternalServerError) as exc:
+                last_error = exc 
+
+                if first_token_sent:
+                    logger.error("llm.stream.mid_stream_failure", extra={"attempt": attempt, "error_type": type(exc).__name__})
+                    raise Exception(f"Stream interrupted after partial output: {exc}") from exc
+                
+                logger.warning("llm.stream.retryable_error", extra={"attempt": attempt, "error_type": type(exc).__name__})
+                if attempt < self._max_retries:
+                    await self._sleep_backoff(attempt)
+                    continue
+                break
+
+            except (BadRequestError, AuthenticationError) as exc:
+                logger.error("llm.stream.fatal_error", extra={"error_type": type(exc).__name__})
+                raise Exception(f"Non-retryable LLM error: {exc}") from exc
 
         logger.error("llm.stream.exhausted_retries", extra={"error_type": type(last_error).__name__})
         raise Exception(f"LLM stream failed after {self._max_retries} retries: {last_error}") from last_error
+
+
+        # async with self._semaphore:
+        #     for attempt in range(self._max_retries + 1):
+        #         try:
+        #             stream_resp = await self.client.chat.completions.create(
+        #                 model=self.model_id,
+        #                 messages=[{"role": "user", "content": prompt}],
+        #                 stream=True,
+        #                 stream_options={"include_usage": True},
+        #             )
+        #             async for chunk in stream_resp:
+        #                 if not chunk.choices:
+        #                     continue
+        #                 delta = chunk.choices[0].delta.content
+        #                 if delta:
+        #                     yield delta
+        #             return
+        #         except (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError) as exc:
+        #             last_error = exc
+        #             logger.warning(
+        #                 "llm.stream.retryable_error",
+        #                 extra={"attempt": attempt, "error_type": type(exc).__name__},
+        #             )
+        #             if attempt < self._max_retries:
+        #                 await self._sleep_backoff(attempt)
+        #                 continue
+        #             break
+        #         except (BadRequestError, AuthenticationError) as exc:
+        #             logger.error("llm.stream.fatal_error", extra={"error_type": type(exc).__name__})
+        #             raise Exception(f"Non-retryable LLM error: {exc}") from exc
+
+        # logger.error("llm.stream.exhausted_retries", extra={"error_type": type(last_error).__name__})
+        # raise Exception(f"LLM stream failed after {self._max_retries} retries: {last_error}") from last_error
 
     async def health_check(self, timeout: float = 5.0) -> bool:
 

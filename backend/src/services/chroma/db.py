@@ -1,5 +1,4 @@
 import asyncio
-import time
 from typing import Any, List
 
 import chromadb
@@ -24,6 +23,18 @@ class ChromaDB:
 
     def __init__(self) -> None:
         self.client = chroma_client
+        self._collection = None
+        self._collection_lock = asyncio.Lock()
+
+    async def _get_collection(self):
+
+        if self._collection is None:
+            async with self._collection_lock:
+                if self._collection is None:
+                    self._collection = await run_in_threadpool(
+                        self.client.get_collection, settings.CHROMA_DB_COLLECTION
+                    )
+        return self._collection
 
     async def query(self, document_id: str, query_embedd: List[float], top_k: int) -> Any:
         """Query the database to get similar chunks."""
@@ -31,28 +42,35 @@ class ChromaDB:
         try:
             collection = self.client.get_collection(settings.CHROMA_DB_COLLECTION)
 
-            results = collection.query(
-                query_embeddings=query_embedd,
-                n_results=top_k,
+            results = await run_in_threadpool(
+                collection.query, 
+                query_embeddings=query_embedd, 
+                n_results=top_k, 
                 where={"document_id": document_id},
                 include=["documents", "metadatas", "distances"],
             )
+
+            # results = collection.query(
+            #     query_embeddings=query_embedd,
+            #     n_results=top_k,
+            #     where={"document_id": document_id},
+            #     include=["documents", "metadatas", "distances"],
+            # )
 
             return results
 
         except Exception as e:
             logger.error("failed to execute search query", error=str(e))
 
-    def get_user_documents(self, user_id: str) -> GetResult:
+    async def get_user_documents(self, user_id: str) -> GetResult:
         """Get all documents for a specific user."""
 
         try:
-            collection = self.client.get_collection(settings.CHROMA_DB_COLLECTION)
+            collection = self._get_collection()
 
-            result = collection.get(
-                where={
-                    "user_id": user_id,
-                },
+            result = await run_in_threadpool(
+                collection.get,
+                where={"user_id": user_id},
                 include=["documents", "metadatas"],
             )
             logger.info("pulled user documents from chromadb", user_id=user_id, collection=collection.name)
@@ -63,16 +81,15 @@ class ChromaDB:
             logger.error("Failed to fetch user documents", user_id=user_id, error=str(e))
             raise
 
-    def get_document_data(self, document_id: str) -> GetResult:
+    async def get_document_data(self, document_id: str) -> GetResult:
         """Retrieve all chunks and embeddings for a specific document."""
 
         try:
-            collection = self.client.get_collection(settings.CHROMA_DB_COLLECTION)
+            collection = self._get_collection()
 
-            result = collection.get(
-                where={
-                    "document_id": document_id,
-                },
+            result = await run_in_threadpool(
+                collection.get,
+                where={"document_id": document_id},
                 include=["documents", "embeddings", "metadatas"],
             )
             logger.info("pulled data from chromadb", document_id=document_id, collection=collection.name)

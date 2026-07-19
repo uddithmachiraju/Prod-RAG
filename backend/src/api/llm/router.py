@@ -1,6 +1,8 @@
-from typing import Dict, List
+import asyncio
+import json
+from typing import Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
@@ -107,47 +109,72 @@ async def query_retrieval(request: RetrievalRequest, user: Dict = Depends(get_cu
 
 #     return StreamingResponse(stream_response(), media_type="text/event-stream")
 
+def _sse_event(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 @router.post("/query/stream", status_code=200, response_class=StreamingResponse)
-async def query_retrieval_stream(request: RetrievalRequest, background_tasks: BackgroundTasks, user: Dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+async def query_retrieval_stream(request: Request, response: Response, payload: RetrievalRequest, background_tasks: BackgroundTasks, user: Dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     """Endpoint to handle retrieval queries with streaming response."""
 
     background_tasks.add_task(
         add_message_to_chat,
-        chat_id=request.chat_id,
+        chat_id=payload.chat_id,
         payload={
             "user_id": str(user["_id"]),
             "role": "user",
-            "content": request.query,
+            "content": payload.query,
         },
         db=db,
     )
 
     async def stream_response():
         assistant_response = ""
+        usage: Optional[Dict[str, int]] = None # type: ignore
+        error_occurred = False
 
         try:
-            retrieved_chunks: List[RetrievalResponse] = await retrieval_service.search_query(request)  # type: ignore
+            try:
+                retrieved_chunks: List[RetrievalResponse] = await asyncio.wait_for(retrieval_service.search_query(payload), timeout=10.0)  # type: ignore
 
-            async for chunk in llm_service.stream(
-                query=request.query,
+            except asyncio.TimeoutError:
+                yield _sse_event("error", {"message": "Retrieval timed out"})
+                error_occurred = True
+                return
+
+            async for delta, chunk_usage in llm_service.stream(
+                query=payload.query,
                 retrievals=retrieved_chunks,
             ):
-                assistant_response += chunk
-                yield chunk
+                if await request.is_disconnected():
+                    break
+
+                if chunk_usage is not None:
+                    usage = chunk_usage
+                    continue
+
+                assistant_response += delta
+                yield _sse_event("token", {"content": delta})
+
+            yield _sse_event("done", {})
+
+        except Exception:
+            error_occurred = True
+            yield _sse_event("error", {"message": "The response failed to complete."})
+
 
         finally:
             background_tasks.add_task(
                 add_message_to_chat,
-                chat_id=request.chat_id,
+                chat_id=payload.chat_id,
                 payload={
                     "user_id": str(user["_id"]),
                     "role": "assistant",
                     "content": assistant_response,
-                    "input_tokens": None,
-                    "output_tokens": None,
+                    "input_tokens": usage.get("prompt_tokens") if usage else None,
+                    "output_tokens": usage.get("completion_tokens") if usage else None,
                     "model": llm_service.model_id,
                     "latency(ms)": None,
+                    "incomplete": error_occurred or not assistant_response,
                 },
                 db=db,
             )
@@ -155,4 +182,9 @@ async def query_retrieval_stream(request: RetrievalRequest, background_tasks: Ba
     return StreamingResponse(
         stream_response(),
         media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )

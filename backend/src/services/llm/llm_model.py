@@ -2,6 +2,7 @@ import asyncio
 import threading
 import time
 from pathlib import Path
+from time import perf_counter
 from typing import Any, AsyncGenerator, Callable, Dict, List
 
 import boto3  # type: ignore
@@ -11,6 +12,7 @@ from pystache import render  # type: ignore
 
 from src.config.logging import get_logger
 from src.config.settings import get_settings
+from src.core.metrics import record_timing
 from src.schemas.llm import LLMResponse, LLMStructuredResponse
 from src.schemas.retrieval import RetrievalResponse
 
@@ -208,6 +210,7 @@ class LLMModel:
         prompt = self.render_prompt_template(user_question=query, retrievals=retrievals, template=template)
 
         try:
+            start = perf_counter()
             response = self._call_with_retry_sync(
                 self.client.converse_stream,
                 modelId=self.model_id,
@@ -250,6 +253,8 @@ class LLMModel:
                         "type": "stop",
                         "reason": event["messageStop"]["stopReason"],
                     }
+            
+            record_timing("llm.chat_completion", (perf_counter() - start) * 1000)
 
         except Exception as e:
             logger.error(f"Error invoking Bedrock LLM Model stream: {e}")

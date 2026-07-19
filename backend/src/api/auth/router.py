@@ -38,7 +38,7 @@ async def login_user(request: Request, response: Response, payload: UserLoginReq
 
 
 @router.post("/refresh", response_model=RefreshResponse)
-@limiter.limit("8/second")
+@limiter.limit("250/second")
 async def refresh_token(request: Request, response: Response, payload: RefreshRequest, db: AsyncIOMotorDatabase = Depends(get_db)):
     """Refresh the user's JWT tokens."""
 
@@ -46,7 +46,8 @@ async def refresh_token(request: Request, response: Response, payload: RefreshRe
 
 
 @router.post("/logout", status_code=200)
-async def logout_user(request: RefreshRequest, db: AsyncIOMotorDatabase = Depends(get_db)) -> dict:
+@limiter.limit("250/second")
+async def logout_user(request: Request, response: Response, payload: RefreshRequest, db: AsyncIOMotorDatabase = Depends(get_db)) -> dict:
     """Logout the user by invalidating their refresh token."""
 
-    return await auth_service.logout_user(request, db)
+    return await auth_service.logout_user(payload, db)

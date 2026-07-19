@@ -14,6 +14,7 @@ services:
       - ../.env
     volumes:
       - ./timings:/app/timings
+      - ./logs:/app/logs
     restart: unless-stopped
     stop_grace_period: 30s
     cpus: 8.0

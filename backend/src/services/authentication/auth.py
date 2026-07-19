@@ -299,7 +299,9 @@ async def logout_user(data: RefreshRequest, db: AsyncIOMotorDatabase) -> dict:
     """Logout the user by invalidating their refresh token."""
 
     try:
+        start = perf_counter()
         payload = jwt.decode(data.refresh_token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        record_timing("logout.jwt_decode", (perf_counter() - start) * 1000)
 
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type.")
@@ -314,6 +316,7 @@ async def logout_user(data: RefreshRequest, db: AsyncIOMotorDatabase) -> dict:
     if not jti or not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token payload.")
 
+    start = perf_counter()
     updated_doc = await db.refresh_tokens.find_one_and_update(
         {"jti": jti, "revoked": False},
         {
@@ -323,6 +326,7 @@ async def logout_user(data: RefreshRequest, db: AsyncIOMotorDatabase) -> dict:
             }
         },
     )
+    record_timing("logout.revoke_token", (perf_counter() - start) * 1000)
 
     if updated_doc is None:
         existing = await db.refresh_tokens.find_one({"jti": jti})
@@ -330,9 +334,9 @@ async def logout_user(data: RefreshRequest, db: AsyncIOMotorDatabase) -> dict:
             logger.warning("logout_failed_refresh_token_not_found", jti=jti, user_id=user_id)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found.")
 
-        logger.warning("logout_failed_already_revoked", jti=jti, user_id=user_id)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has already been revoked.")
+        logger.info("logout_already_revoked_idempotent", jti=jti, user_id=user_id)
+        return {"message": "User logged out successfully."}
 
-    logger.info("user logged out", user_id=user_id)
+    logger.info("user_logged_out", user_id=user_id)
 
     return {"message": "User logged out successfully."}
