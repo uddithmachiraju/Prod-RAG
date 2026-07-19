@@ -252,11 +252,6 @@ const Chat = ({ onLogout, user }) => {
       let buffer = '';
       let done = false;
 
-      const appendText = (text) => {
-        if (!text) return;
-        setMessages(prev => prev.map(m => m.id === aiId ? { ...m, text: (m.text || '') + text } : m));
-      };
-
       try {
         while (!done) {
           const { done: readerDone, value } = await reader.read();
@@ -265,47 +260,48 @@ const Chat = ({ onLogout, user }) => {
           const chunk = decoder.decode(value, { stream: true });
           if (!chunk) continue;
 
-          const looksLikeSse = chunk.includes('data:') || chunk.includes('event:') || chunk.includes('\n\n');
+          buffer += chunk;
 
-          if (looksLikeSse) {
-            buffer += chunk;
+          let idx;
+          while ((idx = buffer.indexOf('\n\n')) !== -1) {
+            const rawEvent = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
 
-            let idx;
-            while ((idx = buffer.indexOf('\n\n')) !== -1) {
-              const rawEvent = buffer.slice(0, idx);
-              buffer = buffer.slice(idx + 2);
+            const lines = rawEvent.split(/\r?\n/);
+            let eventType = '';
+            let dataStr = '';
 
-              const lines = rawEvent.split(/\r?\n/);
-              const isDone = lines.some(l => l.trim() === 'event: done');
-              if (isDone) {
-                done = true;
-                break;
-              }
-
-              const dataParts = lines
-                .filter(l => l.startsWith('data:'))
-                .map(l => l.replace(/^data:\s?/, ''));
-
-              const eventData = dataParts.join('\n').trim();
-              if (eventData) {
-                appendText(eventData);
+            for (const line of lines) {
+              if (line.startsWith('event:')) {
+                eventType = line.slice(6).trim();
+              } else if (line.startsWith('data:')) {
+                dataStr = line.slice(5).trim();
               }
             }
-          } else {
-            appendText(chunk);
-          }
-        }
 
-        if (!done && buffer.trim()) {
-          const lines = buffer.split(/\r?\n/);
-          const dataParts = lines
-            .filter(l => l.startsWith('data:'))
-            .map(l => l.replace(/^data:\s?/, ''));
-          const eventData = dataParts.join('\n').trim();
-          if (eventData) {
-            appendText(eventData);
-          } else if (buffer.trim()) {
-            appendText(buffer);
+            if (eventType === 'done') {
+              done = true;
+              break;
+            }
+
+            if (dataStr) {
+              try {
+                const parsedData = JSON.parse(dataStr);
+                if (eventType === 'token') {
+                  const delta = parsedData.content;
+                  if (delta) {
+                    setMessages(prev => prev.map(m => m.id === aiId ? { ...m, text: (m.text || '') + delta } : m));
+                  }
+                } else if (eventType === 'error') {
+                  const errMsg = parsedData.message || 'An error occurred during streaming.';
+                  setMessages(prev => prev.map(m => m.id === aiId ? { ...m, text: errMsg, isError: true } : m));
+                  done = true;
+                  break;
+                }
+              } catch (e) {
+                console.error('Failed to parse SSE data JSON:', e, 'dataStr:', dataStr);
+              }
+            }
           }
         }
       } catch (streamErr) {
@@ -314,13 +310,11 @@ const Chat = ({ onLogout, user }) => {
       }
     } catch (err) {
       console.error('Error querying retrieval API:', err);
-      const aiMessage = {
-        id: Date.now() + 1,
+      setMessages(prev => prev.map(m => m.id === aiId ? {
+        ...m,
         text: `Error: ${err.message || 'Unable to connect to retrieval API. Please ensure the backend is running.'}`,
-        isError: true,
-        sender: 'ai'
-      };
-      setMessages(prev => [...prev, aiMessage]);
+        isError: true
+      } : m));
     } finally {
       setIsLoading(false);
     }
