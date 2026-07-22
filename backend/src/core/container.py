@@ -1,7 +1,5 @@
 from dataclasses import dataclass, field
 
-from src.services.chroma.db import ChromaDB
-
 # from src.services.embeddings.embeds import Embeddings
 # from src.services.embeddings.jina_embeds import JinaEmbeddings
 from src.services.embeddings.openai_embeds import OpenAIEmbeddings
@@ -13,6 +11,9 @@ from src.services.parsers.pdf_parser import PDFParser
 from src.services.retreival.retreive import RetrivalService
 from src.services.sqs.producer import SQSProducer
 
+# from src.services.vector_store.chroma_db import ChromaDB
+from src.services.vector_store.qdrant_db import Qdrant
+
 
 @dataclass
 class AppContainer:
@@ -23,8 +24,9 @@ class AppContainer:
     embeddings: OpenAIEmbeddings = field(default=OpenAIEmbeddings())
     parser: BaseParser = field(default=PDFParser())
     sqs_producer: SQSProducer = field(default=SQSProducer())
-    chorma_db: ChromaDB = field(default=ChromaDB())
-    retrieval_service: RetrivalService = field(default=RetrivalService(vector_store=chorma_db, embeddings=embeddings))
+    # chorma_db: ChromaDB = field(default=ChromaDB())
+    vector_db: Qdrant = field(default=Qdrant())
+    retrieval_service: RetrivalService = field(default=RetrivalService(vector_store=vector_db, embeddings=embeddings))
     llm_service: LLMModel = field(default=LLMModel())
 
     def initialize(self):
@@ -35,8 +37,9 @@ class AppContainer:
         self.embedding_service = OpenAIEmbeddings()
         self.parser_service = PDFParser()
         self.sqs_producer = SQSProducer()
-        self.chorma_db = ChromaDB()
-        self.retrieval_service = RetrivalService(vector_store=self.chorma_db, embeddings=self.embedding_service)
+        # self.chorma_db = ChromaDB()
+        self.vector_db = Qdrant()
+        self.retrieval_service = RetrivalService(vector_store=self.vector_db, embeddings=self.embedding_service)
         self.llm_service = LLMModel()
 
 
@@ -62,10 +65,10 @@ def get_sqs_producer() -> SQSProducer:
     return container.sqs_producer
 
 
-def get_chroma_db() -> ChromaDB:
+def get_chroma_db() -> Qdrant:
     """returns the chroma db service."""
 
-    return container.chorma_db
+    return container.vector_db
 
 
 def get_retrieval_service() -> RetrivalService:

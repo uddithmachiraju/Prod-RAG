@@ -6,11 +6,13 @@ from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.core.metrics import record_timing
 from src.schemas.retrieval import RetrievalRequest, RetrievalResponse
-from src.services.chroma.db import ChromaDB
 
 # from src.services.embeddings.embeds import Embeddings
 # from src.services.embeddings.jina_embeds import JinaEmbeddings
 from src.services.embeddings.openai_embeds import OpenAIEmbeddings
+
+# from src.services.vector_store.chroma_db import ChromaDB
+from src.services.vector_store.base_db import VectorDB
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -19,7 +21,7 @@ settings = get_settings()
 class RetrivalService:
     """Service for retreiving data from the database."""
 
-    def __init__(self, vector_store: ChromaDB, embeddings: OpenAIEmbeddings) -> None:
+    def __init__(self, vector_store: VectorDB, embeddings: OpenAIEmbeddings) -> None:
         self.vector_store = vector_store
         self.embeddings = embeddings
 
@@ -34,8 +36,9 @@ class RetrivalService:
                 self.embeddings.get_embeddings(payload.query),
                 timeout=5.0,
             )
+            query_vector = query_embedding[0]
             record_timing("retrieval.get_embeddings", (perf_counter() - start) * 1000)
-            
+
         except asyncio.TimeoutError:
             logger.error("retrieval.embedding_timeout", document_id=payload.document_id, timeout_s=5.0)
             raise
@@ -49,7 +52,7 @@ class RetrivalService:
             result = await asyncio.wait_for(
                 self.vector_store.query(
                     document_id=payload.document_id,
-                    query_embedd=query_embedding,
+                    query_embedd=query_vector,
                     top_k=payload.top_k,
                 ),
                 timeout=5.0,
@@ -64,7 +67,7 @@ class RetrivalService:
 
         if not result or not result.get("documents"):
             return []
-        
+
         documents = result["documents"][0]
         metadatas = result.get("metadatas", [[]])[0]
         ids = result.get("ids", [[]])[0]

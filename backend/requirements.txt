@@ -34,3 +34,4 @@ openai==2.45.0
 # prometheus-client==0.25.0
 pandas
 openpyxl
+qdrant-client

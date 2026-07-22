@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     loop.set_default_executor(concurrent.futures.ThreadPoolExecutor(max_workers=64))
 
     # embeddings_service = get_embedddings()
-    chroma_db = get_chroma_db()
+    vector_db = get_chroma_db()
     sqs_producer = get_sqs_producer()
     llm = get_llm_service()
 
@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
     #     logger.error("embeddings_service_connection_failed", env=settings.ENV, version=settings.APP_VERSION)
     #     raise RuntimeError("Failed to connect to the embeddings service. Check logs for details.")
 
-    if not await chroma_db.health_check():
+    if not await vector_db.health_check():
         logger.error("chroma_db_connection_failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the ChromaDB service. Check logs for details.")
 
@@ -73,6 +73,8 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("Failed to connect to the LLM service. Check logs for details.")
 
     await warm_up_pool()
+    await vector_db.create_collection()
+    await vector_db.create_payload_indexes()
     await create_indexes()
 
     yield

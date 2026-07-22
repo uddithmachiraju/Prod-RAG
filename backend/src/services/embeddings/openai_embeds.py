@@ -50,7 +50,10 @@ class OpenAIEmbeddings(Embeddings):
             raise ValueError("No text was provided.")
 
         embeddings_list: List[List[float]] = []
-        embeddings_list.extend(await self._fetch_embeddings(texts))
+        batch_size = 200
+        for start in range(0, len(texts), batch_size):
+            batch = texts[start : start + batch_size]
+            embeddings_list.extend(await self._fetch_embeddings(batch))
 
         return embeddings_list
 

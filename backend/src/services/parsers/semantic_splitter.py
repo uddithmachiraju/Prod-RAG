@@ -4,16 +4,17 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-import numpy as np
+from qdrant_client import models
 
 from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.schemas.document import DocumentChunk
-from src.services.chroma.db import chroma_client
 
 # from src.services.embeddings.embeds import Embeddings
 # from src.services.embeddings.jina_embeds import JinaEmbeddings
 from src.services.embeddings.openai_embeds import OpenAIEmbeddings
+from src.services.vector_store.chroma_db import chroma_client
+from src.services.vector_store.qdrant_db import qdrant_client
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -256,13 +257,21 @@ class SemanticSplitter:
             chunks = await self._semantic_chunking(paragraphs)
             t2 = time.perf_counter()
 
+            if len(set(chunks)) != len(chunks):
+                logger.warning("duplicate_chunks_detected", document_id=document_id, chunk_count=len(chunks), unique_count=len(set(chunks)))
+
             embeddings_list = await embeddings.get_embeddings(chunks)
+            if len(embeddings_list) != len(chunks):
+                logger.error("embedding_count_mismatch", chunk_count=len(chunks), embedding_count=len(embeddings_list), document_id=document_id)
+                raise ValueError(f"Expected {len(chunks)} embeddings, got {len(embeddings_list)}")
+
             t3 = time.perf_counter()
 
             # created_at computed once for the whole batch rather than once per chunk.
             created_at = datetime.now(timezone.utc)
 
-            ids = [f"{document_id}.chunk.{index}" for index in range(len(chunks))]
+            # ids = [f"{document_id}.chunk.{index}" for index in range(len(chunks))]
+            ids = [str(uuid.uuid4()) for _ in chunks]
             documents = chunks
             metadatas = [{"document_id": document_id, "chunk_index": index} for index in range(len(chunks))]
 
@@ -280,14 +289,37 @@ class SemanticSplitter:
             ]
 
             # Write to Chroma in bounded batches instead of one large add() call.
+            # for batch_start in range(0, len(ids), 100):
+            #     batch_end = batch_start + 100
+            #     self.collection.add(
+            #         ids=ids[batch_start:batch_end],
+            #         documents=documents[batch_start:batch_end],
+            #         embeddings=embeddings_list[batch_start:batch_end],
+            #         metadatas=metadatas[batch_start:batch_end],  # type: ignore
+            #     )
+
             for batch_start in range(0, len(ids), 100):
-                batch_end = batch_start + 100
-                self.collection.add(
-                    ids=ids[batch_start:batch_end],
-                    documents=documents[batch_start:batch_end],
-                    embeddings=embeddings_list[batch_start:batch_end],
-                    metadatas=metadatas[batch_start:batch_end],  # type: ignore
+                batch_end = min(batch_start + 100, len(ids))  # cap at actual list length
+                points = [
+                    models.PointStruct(
+                        id=ids[i],
+                        vector=embeddings_list[i],
+                        payload={
+                            "content": documents[i],
+                            "metadata": metadatas[i],
+                            "document_id": metadatas[i].get("document_id"),
+                            "user_id": metadatas[i].get("user_id"),
+                        },
+                    )
+                    for i in range(batch_start, batch_end)
+                ]
+
+                await qdrant_client.upsert(
+                    collection_name=settings.QDRANT_COLLECTION,
+                    points=points,
+                    wait=True,
                 )
+
             t4 = time.perf_counter()
 
             logger.info(

@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     CHROMA_DB_DATABASE: str = Field(default="RAG", description="Database name for ChromaDB CloudClient")
     CHROMA_DB_COLLECTION: str = Field(default="RAG-dev", description="Chorma DB collection name to store the data.")
 
+    # Qdrant Settings
+    QDRANT_URL: str = Field(default=..., description="Qdrant URL")
+    QDRANT_API_KEY: str = Field(default=..., description="Qdrant API Key")
+    QDRANT_COLLECTION: str = Field(default="RAG-collection", description="qdrant collection")
+
     # Observability Settings
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")
 
