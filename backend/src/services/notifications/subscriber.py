@@ -38,9 +38,9 @@ async def _consume(pubsub) -> None:
         payload = _parse_payload(message.get("data"))
         if payload is None:
             continue
-
         try:
             await manager.notify(payload["user_id"], payload)
+            logger.info("Notified user", user_id=payload["user_id"])
         except Exception:
             logger.exception("Failed to notify user", user_id=payload["user_id"])
 

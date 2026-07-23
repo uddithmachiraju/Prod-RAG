@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   backend:
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile
     container_name: rag-backend
@@ -18,6 +18,8 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     cpus: 8.0
+    depends_on:
+      - redis
     develop:
       watch:
         - action: sync
@@ -47,6 +49,8 @@ services:
     env_file:
       - ../.env
     restart: unless-stopped
+    depends_on:
+      - redis
     develop:
       watch:
         - action: sync
@@ -54,3 +58,12 @@ services:
           target: /app/src/services/workers
         - action: rebuild
           path: ./requirements.txt
+
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    restart: unless-stopped
+    expose:
+      - "6379"
+    ports:
+      - "6379:6379"

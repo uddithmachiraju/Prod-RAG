@@ -1,7 +1,7 @@
 import asyncio
 from typing import Any, Dict
 
-from src.config.logging import get_logger
+from src.config.logging import get_logger, setup_logging
 from src.config.settings import get_settings
 from src.core.container import get_parser
 from src.db.mongo_db import get_db
@@ -9,6 +9,7 @@ from src.services.notifications.publisher import publish_document_ready
 from src.services.sqs.consumer import Consumer, setup_signal_handlers
 
 settings = get_settings()
+setup_logging()
 logger = get_logger(__name__)
 
 

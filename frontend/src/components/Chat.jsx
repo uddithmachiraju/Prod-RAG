@@ -103,6 +103,8 @@ const Chat = ({ onLogout, user }) => {
   const [recentChats, setRecentChats] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isDocumentPreparing, setIsDocumentPreparing] = useState(false);
+  const [pendingInitialMessage, setPendingInitialMessage] = useState('');
   const [activeTab, setActiveTab] = useState(localStorage.getItem('chat_active_tab') || 'home');
   const [selectedDoc, setSelectedDoc] = useState(JSON.parse(localStorage.getItem('chat_selected_doc')));
   const [pdfUrl, setPdfUrl] = useState(null);
@@ -113,6 +115,9 @@ const Chat = ({ onLogout, user }) => {
   const profileMenuRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const shouldAutoScrollRef = useRef(true);
+  const wsRef = useRef(null);
+  const pollingIntervalRef = useRef(null);
+  const pendingInitialMessageRef = useRef('');
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -169,6 +174,107 @@ const Chat = ({ onLogout, user }) => {
     return () => window.cancelAnimationFrame(frame);
   }, [messages, isLoading]);
 
+  useEffect(() => {
+    return () => {
+      if (wsRef.current) {
+        const socket = wsRef.current;
+        wsRef.current = null;
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          socket.close();
+        }
+      }
+      if (pollingIntervalRef.current) {
+        window.clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, []);
+
+  const stopPreparationTracking = () => {
+    if (wsRef.current) {
+      const socket = wsRef.current;
+      wsRef.current = null;
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+    }
+    if (pollingIntervalRef.current) {
+      window.clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+  };
+
+  const startPreparationTracking = (documentId, promptText = '') => {
+    if (!documentId) return;
+
+    stopPreparationTracking();
+    setIsDocumentPreparing(true);
+    setPendingInitialMessage(promptText);
+    pendingInitialMessageRef.current = promptText;
+
+    const completePreparation = () => {
+      stopPreparationTracking();
+      setIsDocumentPreparing(false);
+      const promptToSend = pendingInitialMessageRef.current;
+      pendingInitialMessageRef.current = '';
+      setPendingInitialMessage('');
+      if (promptToSend) {
+        handleSendMessage(null, promptToSend);
+      }
+    };
+
+    const token = localStorage.getItem('token');
+    const websocketUrl = token ? `ws://localhost:80/ws?token=${encodeURIComponent(token)}` : 'ws://localhost:80/ws';
+
+    try {
+      const socket = new WebSocket(websocketUrl);
+      wsRef.current = socket;
+
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload?.event === 'DOCUMENT_READY' && String(payload.document_id) === String(documentId)) {
+            completePreparation();
+          }
+        } catch (err) {
+          console.warn('Unable to parse document readiness message:', err);
+        }
+      };
+
+      socket.onerror = () => {
+        console.warn('Document readiness websocket unavailable; falling back to polling.');
+      };
+
+      socket.onclose = () => {
+        wsRef.current = null;
+      };
+    } catch (err) {
+      console.warn('Unable to connect to document readiness websocket:', err);
+    }
+
+    const checkReadiness = async () => {
+      try {
+        const response = await requestWithRefresh('http://localhost:80/documents/', {
+          headers: { 'Content-Type': 'application/json' }
+        }, { onAuthFailure: onLogout });
+
+        if (!response.ok) return;
+
+        const documentsList = await response.json();
+        const readyDoc = documentsList.find((doc) => String(doc._id) === String(documentId) || String(doc.document_id) === String(documentId));
+
+        if (readyDoc) {
+          completePreparation();
+        }
+      } catch (err) {
+        console.warn('Document readiness check failed:', err);
+      }
+    };
+
+    checkReadiness();
+    pollingIntervalRef.current = window.setInterval(checkReadiness, 2500);
+  };
+
   const fetchAllData = async () => {
     try {
       const [docsRes, chatsRes, recentRes] = await Promise.all([
@@ -190,7 +296,7 @@ const Chat = ({ onLogout, user }) => {
   const handleSendMessage = async (e, overrideText = null) => {
     if (e && e.preventDefault) e.preventDefault();
     const textToSend = overrideText !== null ? overrideText : input;
-    if (!textToSend.trim() || isLoading) return;
+    if (!textToSend.trim() || isLoading || isDocumentPreparing) return;
 
     const userMessage = { id: Date.now(), text: textToSend, sender: 'user' };
     setMessages(prev => [...prev, userMessage]);
@@ -384,16 +490,8 @@ const Chat = ({ onLogout, user }) => {
       setSelectedDoc({ title: file.name, document_id: documentId, chat_id });
       setPdfUrl(URL.createObjectURL(file) + '#toolbar=0');
       setActiveTab('chat');
-
-      const messagesToAdd = [];
-
-      if (initialMessage && initialMessage.trim()) {
-        messagesToAdd.push({ id: Date.now() + 1, text: initialMessage.trim(), sender: 'user' });
-        setMessages(prev => [...prev, ...messagesToAdd]);
-        handleSendMessage(null, initialMessage.trim());
-      } else {
-        setMessages([]);
-      }
+      setMessages([]);
+      startPreparationTracking(documentId, initialMessage.trim());
     } catch (err) {
       console.error(err);
       alert('Failed to upload document: ' + err.message);
@@ -581,7 +679,7 @@ const Chat = ({ onLogout, user }) => {
 
         {/* Dynamic Main Content */}
         {activeTab === 'home' ? (
-          <HomeUI onLogout={onLogout} user={user} onUpload={handleFileUpload} documents={recentChats} onSelectDoc={handleSelectDoc} />
+          <HomeUI onLogout={onLogout} user={user} onUpload={handleFileUpload} documents={recentChats} onSelectDoc={handleSelectDoc} isProcessingUpload={isUploading || isDocumentPreparing} />
         ) : activeTab === 'history' ? (
           <div style={{ flex: 1, padding: '3rem', background: '#f4f4f5', overflowY: 'auto', display: 'flex', justifyContent: 'center' }}>
             <div style={{ width: '100%', maxWidth: '800px' }}>
@@ -818,6 +916,17 @@ const Chat = ({ onLogout, user }) => {
                 </div>
 
                 <div className="plugin-input-area">
+                  {(isUploading || isDocumentPreparing) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.8rem 0.95rem', borderRadius: '12px', background: '#f5f3ff', color: '#5d3f94', fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.75rem' }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" style={{ flexShrink: 0 }}>
+                        <path d="M21 12a9 9 0 1 1-2.64-6.36" strokeLinecap="round" strokeLinejoin="round">
+                          <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
+                        </path>
+                      </svg>
+                      <span>{isDocumentPreparing ? 'Preparing this document for Q&A. Please wait…' : 'Uploading document…'}</span>
+                    </div>
+                  )}
+
                   <form className="plugin-input-wrapper" onSubmit={handleSendMessage} style={{ width: '100%', margin: '0' }}>
                     <div className="plugin-input-pill">
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ cursor: 'pointer', marginBottom: '6px' }} onClick={() => fileInputRef.current?.click()}>
@@ -825,8 +934,9 @@ const Chat = ({ onLogout, user }) => {
                       </svg>
                       <textarea
                         ref={textareaRef}
-                        placeholder="Ask workspace assistant..."
+                        placeholder={isDocumentPreparing ? 'Preparing document…' : 'Ask workspace assistant...'}
                         value={input}
+                        disabled={isDocumentPreparing || isUploading}
                         onChange={(e) => {
                           setInput(e.target.value);
                           // Auto-expanding textarea height
@@ -841,7 +951,7 @@ const Chat = ({ onLogout, user }) => {
                         }}
                         rows={1}
                       />
-                      <button type="submit" className="plugin-send-btn" disabled={!input.trim() || isLoading} style={{ marginBottom: '2px' }}>
+                      <button type="submit" className="plugin-send-btn" disabled={!input.trim() || isLoading || isDocumentPreparing || isUploading} style={{ marginBottom: '2px' }}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
                       </button>
                     </div>

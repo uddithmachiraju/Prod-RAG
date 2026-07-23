@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import '../index.css';
 
-const HomeUI = ({ onLogout, user, onUpload, documents = [], onSelectDoc }) => {
+const HomeUI = ({ onLogout, user, onUpload, documents = [], onSelectDoc, isProcessingUpload = false }) => {
   const [inputText, setInputText] = useState('');
   const [attachedFile, setAttachedFile] = useState(null);
   const fileInputRef = useRef(null);
@@ -62,8 +62,9 @@ const HomeUI = ({ onLogout, user, onUpload, documents = [], onSelectDoc }) => {
               <svg className="search-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
               <input
                 className="premium-chat-input"
-                placeholder={attachedFile ? "Ask a question about this document..." : "Ask a question and drop a document here..."}
+                placeholder={isProcessingUpload ? 'Preparing document...' : (attachedFile ? "Ask a question about this document..." : "Ask a question and drop a document here...")}
                 value={inputText}
+                disabled={isProcessingUpload}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && attachedFile) {
@@ -76,7 +77,7 @@ const HomeUI = ({ onLogout, user, onUpload, documents = [], onSelectDoc }) => {
                 <button className="premium-action-btn attach-btn" onClick={() => fileInputRef.current?.click()} title="Attach Document">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
                 </button>
-                <button className="premium-action-btn send-btn" disabled={!attachedFile} onClick={handleSend} title={!attachedFile ? "Attach a document first" : "Upload and Send"}>
+                <button className="premium-action-btn send-btn" disabled={!attachedFile || isProcessingUpload} onClick={handleSend} title={!attachedFile ? "Attach a document first" : "Upload and Send"}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
                 </button>
               </div>
