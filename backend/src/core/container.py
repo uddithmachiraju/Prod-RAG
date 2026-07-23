@@ -6,6 +6,7 @@ from src.services.embeddings.openai_embeds import OpenAIEmbeddings
 
 # from src.services.llm.llm_model import LLMModel
 from src.services.llm.openai_model import LLMModel
+from src.services.notifications.manager import ConnectionManager
 from src.services.parsers.base_parser import BaseParser
 from src.services.parsers.pdf_parser import PDFParser
 from src.services.retreival.retreive import RetrivalService
@@ -28,6 +29,7 @@ class AppContainer:
     vector_db: Qdrant = field(default=Qdrant())
     retrieval_service: RetrivalService = field(default=RetrivalService(vector_store=vector_db, embeddings=embeddings))
     llm_service: LLMModel = field(default=LLMModel())
+    connection_manager: ConnectionManager = field(default=ConnectionManager())
 
     def initialize(self):
         """Initialization of components."""
@@ -41,6 +43,7 @@ class AppContainer:
         self.vector_db = Qdrant()
         self.retrieval_service = RetrivalService(vector_store=self.vector_db, embeddings=self.embedding_service)
         self.llm_service = LLMModel()
+        self.connection_manager = ConnectionManager()
 
 
 container = AppContainer()
@@ -81,3 +84,9 @@ def get_llm_service() -> LLMModel:
     """returns the retrieval service."""
 
     return container.llm_service
+
+
+def get_connection_manager() -> ConnectionManager:
+    """returns the connection manager."""
+
+    return container.connection_manager

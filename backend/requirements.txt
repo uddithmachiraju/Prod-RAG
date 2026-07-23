@@ -35,3 +35,4 @@ openai==2.45.0
 pandas
 openpyxl
 qdrant-client
+redis

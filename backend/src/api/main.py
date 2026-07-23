@@ -18,6 +18,7 @@ from src.api.chats.router import router as chats_router
 from src.api.documents.router import router as document_router
 from src.api.ingestion.router import router as ingestion_router
 from src.api.llm.router import router as retrieval_router
+from src.api.websocket import router as websocket_router
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import get_settings
 from src.core.container import (
@@ -30,6 +31,7 @@ from src.core.metrics import flush_timings
 from src.core.rate_limiter import limiter
 from src.db.indexes import create_indexes
 from src.db.mongo_db import check_db_health, close_db, warm_up_pool
+from src.services.notifications.subscriber import subscribe
 
 settings = get_settings()
 setup_logging()
@@ -71,6 +73,8 @@ async def lifespan(app: FastAPI):
     if not await llm.health_check():
         logger.error("llm model connection failed", env=settings.ENV, version=settings.APP_VERSION)
         raise RuntimeError("Failed to connect to the LLM service. Check logs for details.")
+
+    asyncio.create_task(subscribe())
 
     await warm_up_pool()
     await vector_db.create_collection()
@@ -138,7 +142,7 @@ app.include_router(ingestion_router, prefix="/ingestion", tags=["Ingestion"])
 app.include_router(document_router, prefix="/documents", tags=["Documents"])
 app.include_router(retrieval_router, prefix="/retrieve", tags=["Retrieval"])
 app.include_router(chats_router, prefix="/chats", tags=["Chats"])
-
+app.include_router(websocket_router, tags=["Websocket"])
 
 if __name__ == "__main__":
     uvicorn.run("src.api.main:app", host=settings.HOST, port=settings.PORT, workers=2)

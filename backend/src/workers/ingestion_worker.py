@@ -5,6 +5,7 @@ from src.config.logging import get_logger
 from src.config.settings import get_settings
 from src.core.container import get_parser
 from src.db.mongo_db import get_db
+from src.services.notifications.publisher import publish_document_ready
 from src.services.sqs.consumer import Consumer, setup_signal_handlers
 
 settings = get_settings()
@@ -18,9 +19,9 @@ class IngestionWorker(Consumer):
         """Process a single message from SQS queue."""
 
         payload = message
-        user_id = payload.get("user_id")
+        user_id = payload.get("user_id", "")
         file_key = payload.get("file_key")
-        document_id = payload.get("document_id")
+        document_id = payload.get("document_id", "")
 
         logger.info("Ingesting Document", user_id=user_id, file_key=file_key, document_id=document_id)
 
@@ -47,6 +48,7 @@ class IngestionWorker(Consumer):
                 doc,
                 upsert=True,
             )
+            await publish_document_ready(document_id=document_id, user_id=user_id)
             logger.info("Document ingested successfully", user_id=user_id, file_key=file_key, document_id=document.document_id)
         except Exception as e:
             logger.error("Error ingesting document", user_id=user_id, file_key=file_key, document_id=document_id, error=str(e))
