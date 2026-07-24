@@ -1,4 +1,5 @@
 import os
+import socket
 from datetime import datetime, timezone
 
 import pandas as pd  # type: ignore
@@ -13,6 +14,7 @@ timing_records: list[dict] = []
 _process = psutil.Process(os.getpid())
 
 _process.cpu_percent(interval=None)
+hostname = socket.gethostname()
 
 
 def _snapshot_metrics() -> dict:
@@ -64,7 +66,7 @@ def flush_timings(output_dir: str = "/app/timings"):
 
     df = pd.DataFrame(timing_records)
     pid = os.getpid()
-    path = f"{output_dir}/timings_worker_{pid}.xlsx"
+    path = f"{output_dir}/timings_worker_{hostname}_{pid}.xlsx"
 
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         for flow_name, group in df.groupby("flow"):

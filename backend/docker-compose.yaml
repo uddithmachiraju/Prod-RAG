@@ -49,6 +49,10 @@ services:
     env_file:
       - ../.env
     restart: unless-stopped
+    stop_grace_period: 30s
+    volumes:
+      - ./timings:/app/timings
+      - ./logs:/app/logs
     depends_on:
       - redis
     develop:
