@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, Dict
+from typing import Any
 
 from src.config.logging import get_logger, setup_logging
 from src.config.settings import get_settings
@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class IngestionWorker(Consumer):
     """Worker that listens to the SQS queue for document ingestion jobs and processes them."""
 
-    async def process_message(self, message: Dict[str, Any]) -> None:
+    async def process_message(self, message: dict[str, Any]) -> None:
         """Process a single message from SQS queue."""
 
         payload = message

@@ -35,7 +35,7 @@ async def publish_document_ready(document_id: str, user_id: str, channel: str = 
             user_id=user_id,
         )
     else:
-        logger.debug(
+        logger.info(
             "Published document ready event",
             channel=channel,
             document_id=document_id,
